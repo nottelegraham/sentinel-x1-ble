@@ -40,3 +40,15 @@ After a timed or continuous run the app writes `3032 = 0000` to return to volume
 | `3026`–`3031` | `0000`, `0200` … `1600` | 12 dose times, one byte hour, one byte minute |
 
 Home Assistant runs the schedule, so the pump's built-in schedule should be deleted in the Kamoer app before auto dosing is turned on.
+
+## Built-in schedule (12 slots)
+
+| Register | Meaning |
+|---|---|
+| `3026`–`3031` | Slot 1–12 time: high byte = hour, low byte = minute (`1108` = 17:08) |
+| `301A`–`3025` | Slot 1–12 volume in 0.1 mL (`000A` = 1.0 mL). **0 = slot off** |
+| coil `1003` = `FF00` | Apply / save (same as after calibration) |
+
+The Kamoer app writes each register with function `06`, then applies. Function `10`
+(write multiple, up to 5 registers per BLE packet) is also accepted. There is no
+day-of-week setting: the slots run every day.

@@ -33,6 +33,11 @@ input_text:
     name: "X1 BLE Supplement"
     max: 40
     icon: mdi:flask-outline
+  # Fingerprint of the schedule last confirmed on the pump ("failed" if the last write failed).
+  x1ble_pump_sync:
+    name: "X1 BLE Pump schedule synced"
+    max: 255
+    icon: mdi:sync
 
 input_select:
   x1ble_window:
@@ -225,6 +230,52 @@ template:
             {{ ns.t.isoformat() if ns.t is not none else 'unknown' }}
           {% endif %}
 
+      # Hybrid scheduling. Up to 12 doses a day, the schedule is written to the pump's
+      # own 12 slots and the pump doses by itself (no need for HA, Wi-Fi or the bridge).
+      # Above 12 doses a day, HA runs the schedule and the pump's slots are cleared.
+      # Attributes: times (minutes after midnight), tenths (0.1 mL per slot).
+      - name: "X1 BLE Pump plan"
+        unique_id: x1ble_pump_plan
+        icon: mdi:calendar-sync
+        state: >
+          {% set keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set n = states('input_number.x1ble_doses') | int(1) %}
+          {% set d = states('input_number.x1ble_daily_ml') | float(0) %}
+          {% set cap = states('input_number.x1ble_daily_max') | float(0) %}
+          {% set size = states('input_number.x1ble_container_size') | float(0) %}
+          {% set left = states('input_number.x1ble_container_left') | float(0) %}
+          {% if not is_state('input_boolean.x1ble_enabled', 'on') or d <= 0 %}off
+          {% elif n > 12 %}ha
+          {% elif not is_state('input_boolean.x1ble_' ~ keys[now().weekday()], 'on') %}off
+          {% elif cap > 0 and d > cap + 0.001 %}off
+          {% elif size > 0 and left < 0.1 %}off
+          {% else %}pump
+          {% endif %}
+        attributes:
+          times: >
+            {% set n = states('input_number.x1ble_doses') | int(1) %}
+            {% set w24 = is_state('input_select.x1ble_window', '24 hours') %}
+            {% set start = 0 if w24 else state_attr('input_datetime.x1ble_start', 'timestamp') | int(0) // 60 %}
+            {% set end = 1440 if w24 else state_attr('input_datetime.x1ble_end', 'timestamp') | int(0) // 60 %}
+            {% set span = end - start %}
+            {% set ns = namespace(t=[]) %}
+            {% for k in range(12) %}
+              {% set ns.t = ns.t + [ (start + ((k * span + n - 1) // n)) if (k < n and n <= 12 and span > 0) else 0 ] %}
+            {% endfor %}
+            {{ ns.t }}
+          tenths: >
+            {% set n = states('input_number.x1ble_doses') | int(1) %}
+            {% set total = (states('input_number.x1ble_daily_ml') | float(0) * 10 + 0.001) | int %}
+            {% set w24 = is_state('input_select.x1ble_window', '24 hours') %}
+            {% set start = 0 if w24 else state_attr('input_datetime.x1ble_start', 'timestamp') | int(0) // 60 %}
+            {% set end = 1440 if w24 else state_attr('input_datetime.x1ble_end', 'timestamp') | int(0) // 60 %}
+            {% set ok = end > start and n >= 1 and n <= 12 %}
+            {% set ns = namespace(v=[]) %}
+            {% for k in range(12) %}
+              {% set ns.v = ns.v + [ (total // n + (1 if k < total % n else 0)) if (ok and k < n) else 0 ] %}
+            {% endfor %}
+            {{ ns.v }}
+
       - name: "X1 BLE Status"
         unique_id: x1ble_status
         icon: mdi:information-outline
@@ -236,6 +287,7 @@ template:
           {% set left = states('input_number.x1ble_container_left') | float(0) %}
           {% if is_state('binary_sensor.sentinel_x1_ble_pump_dosing', 'on') %}Dosing
           {% elif is_state('binary_sensor.sentinel_x1_ble_pump_reachable', 'off') %}Pump not reachable
+          {% elif is_state('input_text.x1ble_pump_sync', 'failed') %}Pump schedule not saved
           {% elif not is_state('input_boolean.x1ble_enabled', 'on') %}Paused
           {% elif d <= 0 %}No daily volume set
           {% elif size > 0 and left < 0.1 %}Container empty
@@ -398,6 +450,12 @@ script:
         data:
           notification_id: "x1ble_{{ ((states('input_text.x1ble_supplement') or 'X1 BLE') ~ ': container low') | slugify }}"
 
+  x1ble_pump_resync:
+    alias: "X1 BLE write schedule to pump"
+    icon: mdi:calendar-sync
+    sequence:
+      - event: x1ble_pump_sync_now
+
 automation:
   - id: x1ble_scheduler
     alias: "X1 BLE scheduler"
@@ -416,6 +474,9 @@ automation:
           {{ is_state('input_boolean.x1ble_' ~ ['mon','tue','wed','thu','fri','sat','sun'][now().weekday()], 'on') }}
       - condition: template
         value_template: "{{ states('input_number.x1ble_daily_ml') | float(0) > 0 }}"
+      # 12 doses a day or fewer run on the pump itself (see x1ble_pump_sync).
+      - condition: template
+        value_template: "{{ states('input_number.x1ble_doses') | int(1) > 12 }}"
     variables:
       n: "{{ states('input_number.x1ble_doses') | int(1) }}"
       w24: "{{ is_state('input_select.x1ble_window', '24 hours') }}"
@@ -483,8 +544,11 @@ automation:
         event_type: esphome.sentinel_x1_ble_dose
         event_data:
           ok: "true"
+      - trigger: event
+        event_type: x1ble_pump_slot_dosed
     variables:
       ml: "{{ trigger.event.data.ml | float(0) | round(1) }}"
+      note: "{{ ' (pump schedule)' if trigger.event.event_type == 'x1ble_pump_slot_dosed' else '' }}"
     actions:
       - action: input_number.set_value
         target: {entity_id: input_number.x1ble_dosed_today}
@@ -509,7 +573,7 @@ automation:
       - action: logbook.log
         data:
           name: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
-          message: "dosed {{ ml }} mL"
+          message: "dosed {{ ml }} mL{{ note }}"
           entity_id: input_number.x1ble_dosed_today
 
   - id: x1ble_account_run
@@ -585,6 +649,105 @@ automation:
       - action: input_number.set_value
         target: {entity_id: input_number.x1ble_carry}
         data: {value: 0}
+
+  # Writes the plan to the pump's 12 slots whenever it changes (settings, dosing
+  # days, pause), at start-up and once a night, and checks it by reading it back.
+  - id: x1ble_pump_sync
+    alias: "X1 BLE pump schedule sync"
+    mode: restart
+    triggers:
+      - trigger: state   # state or attribute (times / volumes) changed
+        entity_id: sensor.x1_ble_pump_plan
+      - trigger: homeassistant
+        event: start
+      - trigger: time
+        at: "03:17:00"
+      - trigger: event
+        event_type: x1ble_pump_sync_now
+    conditions:
+      - condition: template
+        value_template: "{{ states('sensor.x1_ble_pump_plan') in ['pump', 'ha', 'off'] }}"
+    actions:
+      - delay: "00:00:15"   # let slider changes settle
+      - variables:
+          pump: "{{ is_state('sensor.x1_ble_pump_plan', 'pump') }}"
+          times: "{{ state_attr('sensor.x1_ble_pump_plan', 'times') if pump else [0,0,0,0,0,0,0,0,0,0,0,0] }}"
+          tenths: "{{ state_attr('sensor.x1_ble_pump_plan', 'tenths') if pump else [0,0,0,0,0,0,0,0,0,0,0,0] }}"
+          sig: "{{ times | join(',') ~ '|' ~ tenths | join(',') }}"
+          forced: "{{ trigger.platform in ['time', 'homeassistant', 'event'] }}"
+      - condition: template
+        value_template: "{{ forced or states('input_text.x1ble_pump_sync') != sig }}"
+      - repeat:
+          sequence:
+            - action: esphome.sentinel_x1_ble_write_schedule
+              data:
+                times: "{{ times }}"
+                tenths: "{{ tenths }}"
+            - wait_for_trigger:
+                - trigger: event
+                  event_type: esphome.sentinel_x1_ble_schedule
+              timeout: "00:01:30"
+            - if:
+                - condition: template
+                  value_template: "{{ wait.trigger is none or wait.trigger.event.data.ok != 'true' }}"
+              then:
+                - delay: "00:00:30"
+          until:
+            - condition: template
+              value_template: "{{ (wait.trigger is not none and wait.trigger.event.data.ok == 'true') or repeat.index >= 3 }}"
+      - if:
+          - condition: template
+            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.ok == 'true' }}"
+        then:
+          - action: input_text.set_value
+            target: {entity_id: input_text.x1ble_pump_sync}
+            data: {value: "{{ sig }}"}
+        else:
+          - action: input_text.set_value
+            target: {entity_id: input_text.x1ble_pump_sync}
+            data: {value: failed}
+          - action: script.x1ble_notify
+            data:
+              title: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}: schedule not saved to pump"
+              message: >
+                {% if pump %}The new schedule could not be written to the pump, so it may still be running its previous schedule.
+                {% else %}The pump's own schedule could not be cleared, so it may still dose on its previous schedule.{% endif %}
+                Sentinel will try again at the next change and tonight. Check that the pump is powered and the Kamoer app isn't connected.
+
+  # The pump doses its own slots without reporting them. One minute after each slot
+  # time, count the dose (only when the pump is confirmed to hold this schedule).
+  - id: x1ble_account_pump_slot
+    alias: "X1 BLE account pump-run dose"
+    mode: queued
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: state
+        entity_id: sensor.x1_ble_pump_plan
+        state: pump
+      - condition: template
+        value_template: >
+          {% set a = states.sensor.x1_ble_pump_plan.attributes %}
+          {{ states('input_text.x1ble_pump_sync') == (a.times | join(',') ~ '|' ~ a.tenths | join(',')) }}
+    variables:
+      prev: "{{ (now() - timedelta(minutes=1)) }}"
+      m: "{{ prev.hour * 60 + prev.minute }}"
+      times: "{{ state_attr('sensor.x1_ble_pump_plan', 'times') }}"
+      tenths: "{{ state_attr('sensor.x1_ble_pump_plan', 'tenths') }}"
+      k: >
+        {% set ns = namespace(k=-1) %}
+        {% for i in range(12) %}{% if ns.k < 0 and tenths[i] > 0 and times[i] == m %}{% set ns.k = i %}{% endif %}{% endfor %}
+        {{ ns.k }}
+    actions:
+      - condition: template
+        value_template: "{{ k >= 0 and prev.date() == now().date() }}"
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_last_slot}
+        data: {value: "{{ k }}"}
+      - event: x1ble_pump_slot_dosed
+        event_data:
+          ml: "{{ (tenths[k] / 10) | round(1) }}"
 
   - id: x1ble_container_low
     alias: "X1 BLE container low"

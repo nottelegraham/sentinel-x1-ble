@@ -47,6 +47,15 @@ api:
     - action: refresh
       then:
         - script.execute: housekeeping
+    - action: write_schedule
+      variables:
+        times: int[]
+        tenths: int[]
+      then:
+        - script.execute:
+            id: write_schedule
+            times: !lambda 'std::vector<int> v; for (size_t i = 0; i < times.size(); i++) v.push_back(times[i]); return v;'
+            tenths: !lambda 'std::vector<int> v; for (size_t i = 0; i < tenths.size(); i++) v.push_back(tenths[i]); return v;'
   encryption:
     key: !secret sentinel_x1_ble_api_key
 
@@ -104,6 +113,17 @@ globals:
   - id: clock_drift_s
     type: int
     initial_value: '99999'
+  - id: sched_req_vol
+    type: std::vector<int>
+  - id: sched_req_time
+    type: std::vector<int>
+  - id: sched_rd_vol
+    type: std::vector<int>
+  - id: sched_rd_time
+    type: std::vector<int>
+  - id: sched_ok
+    type: bool
+    initial_value: 'false'
 
 script:
   # --- link management -------------------------------------------------------
@@ -366,6 +386,72 @@ script:
             - delay: 500ms
       - script.execute: link_idle
 
+  # --- pump schedule (12 slots) ------------------------------------------------
+  # times: minutes after midnight; tenths: volume per slot in 0.1 mL (0 = slot off).
+  # Written in chunks of 5 registers (BLE packets are 20 bytes), applied, then read back.
+  - id: write_schedule
+    mode: queued
+    parameters:
+      times: int[]
+      tenths: int[]
+    then:
+      - lambda: |-
+          id(sched_req_vol).assign(12, 0); id(sched_req_time).assign(12, 0);
+          for (size_t i = 0; i < 12 && i < tenths.size(); i++) id(sched_req_vol)[i] = std::max(0, std::min(65000, tenths[i]));
+          for (size_t i = 0; i < 12 && i < times.size(); i++) { int t = std::max(0, std::min(1439, times[i])); id(sched_req_time)[i] = ((t / 60) << 8) | (t % 60); }
+          id(sched_rd_vol).assign(12, -1); id(sched_rd_time).assign(12, -1);
+      - script.execute: ensure_link
+      - script.wait: ensure_link
+      - if:
+          condition:
+            lambda: return id(link_ready);
+          then:
+            - repeat:
+                count: 6
+                then:
+                  - script.execute:
+                      id: send_frame
+                      frame: !lambda |-
+                        bool vol = iteration < 3; int chunk = iteration % 3;
+                        int first = chunk * 5, n = std::min(5, 12 - first);
+                        int reg = (vol ? 0x301A : 0x3026) + first;
+                        std::vector<int> f{0x01, 0x10, (reg >> 8) & 0xFF, reg & 0xFF, 0x00, n, n * 2};
+                        for (int i = 0; i < n; i++) { int v = vol ? id(sched_req_vol)[first + i] : id(sched_req_time)[first + i]; f.push_back((v >> 8) & 0xFF); f.push_back(v & 0xFF); }
+                        return f;
+                  - script.wait: send_frame
+            - script.execute:
+                id: send_frame
+                frame: [0x01, 0x05, 0x10, 0x03, 0xFF, 0x00]
+            - script.wait: send_frame
+            - delay: 300ms
+            - repeat:
+                count: 6
+                then:
+                  - script.execute:
+                      id: send_frame
+                      frame: !lambda |-
+                        bool vol = iteration < 3; int chunk = iteration % 3;
+                        int first = chunk * 5, n = std::min(5, 12 - first);
+                        int reg = (vol ? 0x301A : 0x3026) + first;
+                        return std::vector<int>{0x01, 0x03, (reg >> 8) & 0xFF, reg & 0xFF, 0x00, n};
+                  - script.wait: send_frame
+            - delay: 500ms
+      - lambda: |-
+          bool ok = id(link_ready);
+          for (int i = 0; i < 12 && ok; i++) {
+            if (id(sched_rd_vol)[i] != id(sched_req_vol)[i]) ok = false;
+            if (id(sched_req_vol)[i] > 0 && id(sched_rd_time)[i] != id(sched_req_time)[i]) ok = false;
+          }
+          int total = 0; for (int v : id(sched_req_vol)) total += v;
+          ESP_LOGI("x1", "Pump schedule write %s (%d.%d mL/day)", ok ? "verified" : "NOT verified", total / 10, total % 10);
+          id(last_result).publish_state(ok ? "Pump schedule saved" : "Pump schedule not saved");
+          id(sched_ok) = ok;
+      - homeassistant.event:
+          event: esphome.sentinel_x1_ble_schedule
+          data:
+            ok: !lambda 'return id(sched_ok) ? "true" : "false";'
+      - script.execute: link_idle
+
   - id: write_calibration
     parameters:
       ms: int
@@ -450,6 +536,13 @@ sensor:
             id(clock_drift_s) = (int) ((int64_t) t.timestamp - (int64_t) now.timestamp);
             ESP_LOGD("x1", "Pump clock drift %d s", id(clock_drift_s));
           }
+        }
+        int r = id(last_read_reg); int cnt = x[2] / 2;
+        for (int j = 0; j < cnt && 3 + 2 * j + 1 < (int) x.size(); j++) {
+          int val = (x[3 + 2 * j] << 8) | x[4 + 2 * j];
+          int iv = r - 0x301A + j, it = r - 0x3026 + j;
+          if (iv >= 0 && iv < 12 && id(sched_rd_vol).size() == 12) id(sched_rd_vol)[iv] = val;
+          if (it >= 0 && it < 12 && id(sched_rd_time).size() == 12) id(sched_rd_time)[it] = val;
         }
       }
       return (float) fn;

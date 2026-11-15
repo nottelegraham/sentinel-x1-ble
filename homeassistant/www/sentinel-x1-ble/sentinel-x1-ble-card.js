@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.0.5';
+const SXB_VERSION = '1.1.0';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -57,6 +57,7 @@ const E = {
   lowdays: 'input_number.x1ble_low_days', today: 'input_number.x1ble_dosed_today', total: 'input_number.x1ble_dosed_total',
   perdose: 'sensor.x1_ble_per_dose', daysleft: 'sensor.x1_ble_days_left', level: 'sensor.x1_ble_container_level',
   next: 'sensor.x1_ble_next_dose', status: 'sensor.x1_ble_status', caldue: 'binary_sensor.x1_ble_calibration_due',
+  plan: 'sensor.x1_ble_pump_plan', psync: 'input_text.x1ble_pump_sync',
   reach: 'binary_sensor.sentinel_x1_ble_pump_reachable', dosing: 'binary_sensor.sentinel_x1_ble_pump_dosing',
   flow: 'sensor.sentinel_x1_ble_flow_rate_calibrated', result: 'sensor.sentinel_x1_ble_last_result',
   contact: 'sensor.sentinel_x1_ble_last_contact',
@@ -212,6 +213,11 @@ class SentinelX1BleCard extends HTMLElement {
         <div><b>Container low</b><span>${fmt(this.n(E.cleft), 0)} mL left \u00b7 about ${fmt(dl, 1)} days</span></div>
         <div class="bactions"><button class="ghost" data-act="refill">Refilled</button></div></div>`);
     }
+    if (this.v(E.psync) === 'failed') {
+      out.push(`<div class="banner red"><ha-icon icon="mdi:calendar-alert"></ha-icon>
+        <div><b>Schedule not saved to the pump</b><span>The pump may still be on its previous schedule. Sentinel retries at the next change and overnight.</span></div>
+        <div class="bactions"><button class="ghost" data-act="resync">Try again</button></div></div>`);
+    }
     if (!this.on(E.reach) && this.v(E.reach) !== 'unknown') {
       out.push(`<div class="banner red"><ha-icon icon="mdi:bluetooth-off"></ha-icon>
         <div><b>Pump not reachable</b><span>The bridge couldn't connect on its last try. Close the Kamoer app if it's open; doses retry automatically.</span></div></div>`);
@@ -282,15 +288,23 @@ class SentinelX1BleCard extends HTMLElement {
       <div class="card tile"><div class="ticon"><ha-icon icon="mdi:calendar-week"></ha-icon></div>
         <div class="tlabel2">Schedule</div><div class="tval sm">${esc(daysTxt)}</div>
         <div class="tsub">${esc(winTxt)} \u00b7 limit ${this.n(E.cap) > 0 ? fmt(this.n(E.cap), 1) + ' mL' : 'off'}</div>
+        <div class="tsub">${esc(this._runsOn())}</div>
         <div class="tdays">${size > 0 && dl !== 'unknown' ? `<b>${fmt(dl, 1)}</b> days remaining` : (size > 0 ? 'Days remaining: set a daily volume' : '<a data-tab="setup">Set container size</a> for days remaining')}</div></div>
     </div>`;
+  }
+
+  _runsOn() {
+    const plan = this.v(E.plan), sync = this.v(E.psync);
+    if (plan === 'ha') return 'Runs in Home Assistant (over 12 doses a day)';
+    if (plan === 'pump') return sync === 'failed' ? 'Pump schedule not saved' : 'Runs on the pump';
+    return 'Pump schedule cleared';
   }
 
   _setup() {
     const w24 = this.v(E.window) === '24 hours';
     const daily = this.n(E.daily), doses = this.n(E.doses, 1); const per = doses ? daily / doses : 0;
     const cap = this.n(E.cap);
-    const capWarn = cap > 0 && cap < daily ? `<div class="warn">The safety limit is below the daily volume \u2014 some doses will be skipped.</div>` : '';
+    const capWarn = cap > 0 && cap < daily ? `<div class="warn">The safety limit is below the daily volume \u2014 ${doses <= 12 ? 'the pump schedule stays cleared until you raise the limit or lower the daily volume.' : 'some doses will be skipped.'}</div>` : '';
     const perWarn = daily > 0 && per < 0.1 ? `<div class="hint">Each dose is ${fmt(per, 3)} mL; the pump's smallest dose is 0.1 mL, so tiny remainders carry over and are delivered with later doses.</div>` : '';
     return `<div class="grid two">
       <div class="card">
@@ -300,6 +314,7 @@ class SentinelX1BleCard extends HTMLElement {
         <label>Daily volume</label>${this._stepper(E.daily, {big: true, step: 0.5, dp: 1})}
         <label>Doses per day</label>${this._stepper(E.doses, {big: true, unit: ''})}
         <div class="calc">= <b>${fmt(per, 2)} mL</b> per dose</div>${perWarn}
+        <div class="hint">${doses <= 12 ? 'Up to 12 doses a day are saved on the pump, so they keep running even if Home Assistant or Wi-Fi is down.' : 'Over 12 doses a day, Home Assistant runs the schedule; it needs Home Assistant and the bridge online.'}</div>
         <label>Daily safety limit <span class="muted">(0 = off)</span></label>${this._stepper(E.cap, {step: 0.5, dp: 1})}
         ${daily > 0 ? `<button class="link" data-act="capsuggest">Set to 1.5 \u00d7 daily (${fmt(daily * 1.5, 1)} mL)</button>` : ''}${capWarn}
       </div>
@@ -444,6 +459,7 @@ class SentinelX1BleCard extends HTMLElement {
       case 'dose': return this.press('dose', S('x1ble_manual_dose'));
       case 'prime': return this.press('prime', S('x1ble_prime'));
       case 'rollcall': return this.press('rollcall', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_roll_call'}));
+      case 'resync': return this.press('resync', S('x1ble_pump_resync'));
       case 'refill': {
         const size = this.n(E.csize);
         this._confirm = {title: 'Mark the container as refilled?',

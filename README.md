@@ -72,6 +72,14 @@ Home Assistant actions exposed by the bridge:
 - A time window can't cross midnight.
 - This is beta software. Keep your usual safeguards in place and watch the first few days of dosing.
 
+## Hybrid scheduling
+
+With 12 doses a day or fewer, Sentinel writes the schedule into the pump's own 12 slots and
+reads it back to confirm. The pump then doses by itself, even if Home Assistant, Wi-Fi or the
+bridge is down. Above 12 doses a day, Home Assistant runs the schedule and the pump's slots are
+cleared. Days of the week are handled by clearing the pump's slots on off days. Pump-run doses
+are counted one minute after each slot time.
+
 ## License
 
 Free for personal, hobby and other noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). Selling this software, devices built with it, or any part of it requires written permission from TelegrahamTested. Independent project; not affiliated with Kamoer.
