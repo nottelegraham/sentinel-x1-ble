@@ -50,14 +50,14 @@ customElements.define('ha-icon', HaIcon);
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.0.3';
+const SXB_VERSION = '1.0.4';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
 if (!window.customIcons.sentinel) {
   window.customIcons.sentinel = {getIcon: async () => ({
-    path: 'M117 25L192 57V1.0.292 145 164 174 118 193C70 174 44 143 44 101V57Z',
-    secondaryPath: 'M75 71H97L105 92L128 71H151L116 105L129 136H107L99 115L78 136H59L91 102ZM138 80L157 71H1.0.254 136H135L147 91L136 97Z',
+    path: 'M117 25L192 57V100C192 145 164 174 118 193C70 174 44 143 44 101V57Z',
+    secondaryPath: 'M75 71H97L105 92L128 71H151L116 105L129 136H107L99 115L78 136H59L91 102ZM138 80L157 71H170L154 136H135L147 91L136 97Z',
     viewBox: '35 20 166 178'})};
 }
 const SXB_ICON = 'sentinel:x1ble';
@@ -175,7 +175,9 @@ class SentinelX1BleCard extends HTMLElement {
     if (!force && focused && (focused.tagName === 'INPUT')) return; // don't fight typing
     const missing = !this.s(E.daily);
     root.innerHTML = `<style>${this._css()}</style>
-      <div class="wrap">${missing ? this._missing() : this._header() + this._tabs() + this._body()}</div>`;
+      <div class="wrap">${missing ? this._missing() : this._header() + this._tabs() + this._body()}</div>${this._confirm ? `
+      <div class="modal" role="dialog" aria-modal="true"><div class="mbox"><h3>${esc(this._confirm.title)}</h3><p>${esc(this._confirm.body)}</p>
+      <div class="mact"><button class="ghost" data-confirm="no">Cancel</button><button class="primary" data-confirm="yes">${esc(this._confirm.ok)}</button></div></div></div>` : ''}`;
     this._bind();
     if (this._tab === 'history' && Date.now() - this._histAt > 120000) this._loadHistory();
   }
@@ -469,6 +471,10 @@ class SentinelX1BleCard extends HTMLElement {
     r.querySelectorAll('[data-tog]').forEach(b => b.addEventListener('click', () =>
       this.call('input_boolean', 'toggle', {entity_id: b.dataset.tog})));
     r.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => this._act(b.dataset.act)));
+    r.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', () => {
+      const c = this._confirm; this._confirm = null;
+      if (b.dataset.confirm === 'yes' && c) c.run(); else this._render(true);
+    }));
   }
 
   _act(a) {
@@ -482,7 +488,13 @@ class SentinelX1BleCard extends HTMLElement {
       case 'dose': return this.press('dose', S('x1ble_manual_dose'));
       case 'prime': return this.press('prime', S('x1ble_prime'));
       case 'rollcall': return this.press('rollcall', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_roll_call'}));
-      case 'refill': return this.press('refill', S('x1ble_refill'));
+      case 'refill': {
+        const size = this.n(E.csize);
+        this._confirm = {title: 'Mark the container as refilled?',
+          body: `This resets the container to full (${fmt(size, 0)} mL). Only confirm after you have actually refilled it.`,
+          ok: 'Yes, it\u2019s refilled', run: () => this.press('refill', S('x1ble_refill'))};
+        this._render(true); return;
+      }
       case 'dismiss': return this.call('script', 'x1ble_cal_dismiss');
       case 'calrun': return this.press('calrun', S('x1ble_cal_run'));
       case 'calsave': return this.press('calsave', S('x1ble_cal_save'));
@@ -590,6 +602,10 @@ class SentinelX1BleCard extends HTMLElement {
     .logrow{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
     .logrow span{color:var(--muted);min-width:96px} .logrow b{font-weight:600}
     code{background:var(--soft);padding:1px 5px;border-radius:5px}
+    .modal{position:fixed;inset:0;background:rgba(19,35,58,.45);display:flex;align-items:center;justify-content:center;z-index:10;padding:16px}
+    .mbox{background:#fff;border-radius:18px;padding:22px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(19,35,58,.25)}
+    .mbox h3{font-size:17px} .mbox p{color:var(--muted);font-size:14px;line-height:1.5;margin:8px 0 18px}
+    .mact{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap} .mact .ghost{color:var(--ink);border-color:var(--line)}
     @media (max-width:600px){.wrap{padding:8px;border-radius:0}.card{padding:14px}.title{font-size:18px}
       .head-right{width:100%;justify-content:space-between}.tab span{display:none}.tab{padding:10px}
       .ring{width:112px;height:112px}.big{font-size:19px}}
