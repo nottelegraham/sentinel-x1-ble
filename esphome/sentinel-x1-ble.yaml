@@ -101,6 +101,9 @@ globals:
   - id: run_timer_ms
     type: uint32_t
     initial_value: '0'
+  - id: clock_drift_s
+    type: int
+    initial_value: '99999'
 
 script:
   # --- link management -------------------------------------------------------
@@ -322,6 +325,8 @@ script:
       - delay: !lambda return id(run_timer_ms);
       - lambda: id(pump_running).publish_state(false);
 
+  # Hourly (and on HA time sync): reconnect, check the pump clock, correct it only if it
+  # has drifted more than 30 s (or couldn't be read), then read calibration back.
   - id: housekeeping
     mode: single
     then:
@@ -331,10 +336,17 @@ script:
           condition:
             lambda: return id(link_ready);
           then:
+            - lambda: id(clock_drift_s) = 99999;
+            - script.execute:
+                id: send_frame
+                frame: [0x01, 0x03, 0x30, 0x0F, 0x00, 0x06]
+            - script.wait: send_frame
+            - delay: 600ms
             - if:
                 condition:
-                  lambda: return id(ha_time).now().is_valid();
+                  lambda: return id(ha_time).now().is_valid() && abs(id(clock_drift_s)) > 30;
                 then:
+                  - lambda: ESP_LOGI("x1", "Pump clock off by %d s (99999 = unread), syncing", id(clock_drift_s));
                   - script.execute:
                       id: send_frame
                       frame: !lambda |-
@@ -399,7 +411,7 @@ script:
       - script.execute: link_idle
 
 interval:
-  - interval: 6h
+  - interval: 1h
     then:
       - script.execute: housekeeping
 
@@ -427,6 +439,17 @@ sensor:
         if (id(last_read_reg) == 0x3009 && v > 0) {
           id(ms_per_ml) = v;
           id(pump_flow).publish_state(60000.0f / v);
+        }
+        if (id(last_read_reg) == 0x300F && x.size() >= 15 && x[2] >= 12) {
+          auto now = id(ha_time).now();
+          if (now.is_valid()) {
+            ESPTime t = now;
+            t.year = (x[3] << 8) | x[4]; t.month = x[6]; t.day_of_month = x[8];
+            t.hour = x[10]; t.minute = x[12]; t.second = x[14];
+            t.recalc_timestamp_local();
+            id(clock_drift_s) = (int) ((int64_t) t.timestamp - (int64_t) now.timestamp);
+            ESP_LOGD("x1", "Pump clock drift %d s", id(clock_drift_s));
+          }
         }
       }
       return (float) fn;
