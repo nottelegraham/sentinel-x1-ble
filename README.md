@@ -73,4 +73,4 @@ Home Assistant actions exposed by the bridge:
 
 ## License
 
-MIT. Independent project; not affiliated with Kamoer.
+Free for personal, hobby and other noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). Selling this software, devices built with it, or any part of it requires written permission from TelegrahamTested. Independent project; not affiliated with Kamoer.
