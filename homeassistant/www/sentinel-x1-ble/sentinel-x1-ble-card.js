@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.0.2';
+const SXB_VERSION = '1.0.3';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -274,7 +274,8 @@ class SentinelX1BleCard extends HTMLElement {
         <div class="tsub"><a data-tab="calibrate">Calibrate</a></div></div>
       <div class="card tile"><div class="ticon"><ha-icon icon="mdi:calendar-week"></ha-icon></div>
         <div class="tlabel2">Schedule</div><div class="tval sm">${esc(daysTxt)}</div>
-        <div class="tsub">${esc(winTxt)} \u00b7 limit ${this.n(E.cap) > 0 ? fmt(this.n(E.cap), 1) + ' mL' : 'off'}</div></div>
+        <div class="tsub">${esc(winTxt)} \u00b7 limit ${this.n(E.cap) > 0 ? fmt(this.n(E.cap), 1) + ' mL' : 'off'}</div>
+        <div class="tdays">${size > 0 && dl !== 'unknown' ? `<b>${fmt(dl, 1)}</b> days remaining` : (size > 0 ? 'Days remaining: set a daily volume' : '<a data-tab="setup">Set container size</a> for days remaining')}</div></div>
     </div>`;
   }
 
@@ -513,6 +514,7 @@ class SentinelX1BleCard extends HTMLElement {
     .tval.sm{font-size:17px;line-height:1.3;padding-right:36px}
     .tval.okc{color:${C.green}} .tval.badc{color:${C.red}}
     .tsub{font-size:12px;color:var(--muted);margin-top:2px}
+    .tdays{margin-top:8px;font-size:13px;color:var(--ink)} .tdays b{font-size:17px;color:var(--blue)}
     .meter{height:8px;border-radius:4px;background:${C.blueSoft};overflow:hidden;margin:6px 0}
     .meter i{display:block;height:100%;background:var(--blue);border-radius:4px} .meter i.low{background:${C.red}}
     .banner{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;margin-top:12px;flex-wrap:wrap}
