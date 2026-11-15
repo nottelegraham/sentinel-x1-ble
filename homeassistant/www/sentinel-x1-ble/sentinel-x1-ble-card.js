@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.0.4';
+const SXB_VERSION = '1.0.5';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -85,7 +85,12 @@ class SentinelX1BleCard extends HTMLElement {
     this._busy = {};
   }
 
-  setConfig(config) { this._config = config || {}; }
+  setConfig(config) {
+    this._config = config || {};
+    // Optional history_start (ISO date/time): hide log entries and chart data from before you started using the pump.
+    const hs = this._config.history_start ? new Date(this._config.history_start) : null;
+    this._histStart = hs && !isNaN(hs) ? hs.getTime() : 0;
+  }
   getCardSize() { return 12; }
   getGridOptions() { return {columns: 'full'}; }
 
@@ -375,7 +380,7 @@ class SentinelX1BleCard extends HTMLElement {
     try {
       const h = await this._hass.callWS({type: 'history/history_during_period', start_time: start.toISOString(),
         end_time: end.toISOString(), entity_ids: [E.today], minimal_response: true, no_attributes: true, include_start_time_state: true});
-      const pts = (h[E.today] || []).map(p => ({t: new Date((p.lu || p.last_updated) * 1000 || p.last_changed), v: num(p.s ?? p.state)}));
+      const pts = (h[E.today] || []).map(p => ({t: new Date((p.lu || p.last_updated) * 1000 || p.last_changed), v: num(p.s ?? p.state)})).filter(p => p.t.getTime() >= this._histStart);
       const days = [];
       for (let i = 0; i < 7; i++) {
         const d0 = new Date(start); d0.setDate(start.getDate() + i); const d1 = new Date(d0); d1.setDate(d0.getDate() + 1);
@@ -386,7 +391,7 @@ class SentinelX1BleCard extends HTMLElement {
       }
       this._hist = days;
       const lb = await this._hass.callWS({type: 'logbook/get_events', start_time: start.toISOString(), end_time: end.toISOString(), entity_ids: [E.today]});
-      this._log = lb.filter(e => e.message).sort((a, b) => b.when - a.when).map(e => {
+      this._log = lb.filter(e => e.message && e.when * 1000 >= this._histStart).sort((a, b) => b.when - a.when).map(e => {
         const t = new Date(e.when * 1000);
         return {when: (t.toDateString() === new Date().toDateString() ? '' : t.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ') + hhmm(t), msg: e.message};
       });

@@ -48,6 +48,7 @@ No cloud, no Kamoer account, no changes to the pump.
    ```yaml
    type: custom:sentinel-x1-ble-card
    ```
+   Optional: add `history_start: "2026-01-31T16:00:00"` to hide log entries and chart data from before you started using the pump.
 6. **Delete the pump's built-in schedule** in the Kamoer app, then close the app. The pump accepts one Bluetooth connection at a time.
 7. Open the dashboard, calibrate, set your daily volume on **Setup**, and turn on **Auto dosing**.
 
