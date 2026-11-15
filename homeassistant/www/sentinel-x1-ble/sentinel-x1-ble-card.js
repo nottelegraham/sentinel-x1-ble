@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.1.0';
+const SXB_VERSION = '1.1.1';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -288,16 +288,26 @@ class SentinelX1BleCard extends HTMLElement {
       <div class="card tile"><div class="ticon"><ha-icon icon="mdi:calendar-week"></ha-icon></div>
         <div class="tlabel2">Schedule</div><div class="tval sm">${esc(daysTxt)}</div>
         <div class="tsub">${esc(winTxt)} \u00b7 limit ${this.n(E.cap) > 0 ? fmt(this.n(E.cap), 1) + ' mL' : 'off'}</div>
-        <div class="tsub">${esc(this._runsOn())}</div>
+        <div class="psync ${this._pumpSync().cls}">${this._pumpSync().html}</div>
         <div class="tdays">${size > 0 && dl !== 'unknown' ? `<b>${fmt(dl, 1)}</b> days remaining` : (size > 0 ? 'Days remaining: set a daily volume' : '<a data-tab="setup">Set container size</a> for days remaining')}</div></div>
     </div>`;
   }
 
-  _runsOn() {
-    const plan = this.v(E.plan), sync = this.v(E.psync);
-    if (plan === 'ha') return 'Runs in Home Assistant (over 12 doses a day)';
-    if (plan === 'pump') return sync === 'failed' ? 'Pump schedule not saved' : 'Runs on the pump';
-    return 'Pump schedule cleared';
+  // Where the schedule runs, and whether the pump is confirmed to hold it: the package
+  // stores the read-back fingerprint in input_text.x1ble_pump_sync after each verified write.
+  _pumpSync() {
+    const p = this.s(E.plan), sy = this.s(E.psync);
+    if (!p || !sy) return {cls: '', html: ''};
+    const plan = p.state, a = p.attributes || {};
+    const zeros = Array(12).fill(0);
+    const pump = plan === 'pump';
+    const want = (pump ? (a.times || zeros) : zeros).join(',') + '|' + (pump ? (a.tenths || zeros) : zeros).join(',');
+    const t = new Date(sy.last_changed); const today = new Date().toDateString() === t.toDateString();
+    const when = isNaN(t) ? '' : ' \u00b7 ' + (today ? hhmm(t) : t.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + hhmm(t));
+    const ha = plan === 'ha' ? 'Runs in Home Assistant (over 12 doses a day)<br>' : '';
+    if (sy.state === 'failed') return {cls: 'bad', html: `${ha}<ha-icon icon="mdi:alert-circle"></ha-icon> Not saved to the pump \u00b7 <a data-act="resync">Try again</a>`};
+    if (sy.state !== want) return {cls: 'wait', html: `${ha}<ha-icon icon="mdi:sync"></ha-icon> ${pump ? 'Saving to the pump\u2026' : 'Clearing the pump schedule\u2026'}`};
+    return {cls: 'ok', html: `${ha}<ha-icon icon="mdi:check-circle"></ha-icon> ${pump ? 'Saved on the pump' : 'Pump schedule cleared'}${when}`};
   }
 
   _setup() {
@@ -548,6 +558,8 @@ class SentinelX1BleCard extends HTMLElement {
     .tval.okc{color:${C.green}} .tval.badc{color:${C.red}}
     .tsub{font-size:12px;color:var(--muted);margin-top:2px}
     .tdays{margin-top:8px;font-size:13px;color:var(--ink)} .tdays b{font-size:17px;color:var(--blue)}
+    .psync{margin-top:6px;font-size:13px;color:var(--muted);line-height:1.5} .psync ha-icon{--mdc-icon-size:16px;vertical-align:-3px}
+    .psync.ok ha-icon{color:${C.green}} .psync.wait ha-icon{color:${C.blue}} .psync.bad{color:${C.red}} .psync a{cursor:pointer}
     .meter{height:8px;border-radius:4px;background:${C.blueSoft};overflow:hidden;margin:6px 0}
     .meter i{display:block;height:100%;background:var(--blue);border-radius:4px} .meter i.low{background:${C.red}}
     .banner{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;margin-top:12px;flex-wrap:wrap}
