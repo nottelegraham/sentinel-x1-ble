@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel X1 BLE · Interactive demo</title>
+<meta name="description" content="Interactive demo of the Sentinel X1 BLE Home Assistant dashboard for the Kamoer X1 Bluetooth dosing pump. Simulated pump, nothing is sent anywhere.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='35 20 166 178'%3E%3Cpath fill='%231F6FEB' d='M117 25L192 57V100C192 145 164 174 118 193C70 174 44 143 44 101V57Z'/%3E%3Cpath fill='white' d='M75 71H97L105 92L128 71H151L116 105L129 136H107L99 115L78 136H59L91 102ZM138 80L157 71H170L154 136H135L147 91L136 97Z'/%3E%3C/svg%3E">
+<style>
+  :root{color-scheme:light}
+  body{margin:0;background:#F4F7FB;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#13233A}
+  .demo-bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    background:#13233A;color:#fff;padding:10px 18px;font-size:14px}
+  .demo-bar b{color:#9CC3FF}
+  .demo-bar .ctl{display:flex;gap:8px;flex-wrap:wrap}
+  .demo-bar button{font:inherit;font-size:13px;font-weight:700;border:1px solid #3B5172;background:#1E3352;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
+  .demo-bar button:hover{background:#26406A}
+  .demo-bar a{color:#9CC3FF;font-weight:700;text-decoration:none}
+  #host{padding:14px 0 40px}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#13233A;color:#fff;padding:10px 16px;border-radius:10px;
+    font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw;text-align:center}
+  .toast.on{opacity:1}
+</style>
+<script>
+// ---- ha-icon stand-in: draws Material Design Icons from an embedded path table ----------------
+window.__ICONS = {"water-pump":"M19,14.5C19,14.5 21,16.67 21,18A2,2 0 0,1 19,20A2,2 0 0,1 17,18C17,16.67 19,14.5 19,14.5M5,18V9A2,2 0 0,1 3,7A2,2 0 0,1 5,5V4A2,2 0 0,1 7,2H9A2,2 0 0,1 11,4V5H19A2,2 0 0,1 21,7V9L21,11A1,1 0 0,1 22,12A1,1 0 0,1 21,13H17A1,1 0 0,1 16,12A1,1 0 0,1 17,11V9H11V18H12A2,2 0 0,1 14,20V22H2V20A2,2 0 0,1 4,18H5Z","check-circle":"M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z","check-all":"M0.41,13.41L6,19L7.41,17.58L1.83,12M22.24,5.58L11.66,16.17L7.5,12L6.07,13.41L11.66,19L23.66,7M18,7L16.59,5.58L10.24,11.93L11.66,13.34L18,7Z","pause-circle":"M15,16H13V8H15M11,16H9V8H11M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z","bluetooth-off":"M13,5.83L14.88,7.71L13.28,9.31L14.69,10.72L17.71,7.7L12,2H11V7.03L13,9.03M5.41,4L4,5.41L10.59,12L5,17.59L6.41,19L11,14.41V22H12L16.29,17.71L18.59,20L20,18.59M13,18.17V14.41L14.88,16.29","bottle-tonic-outline":"M13 4H11L10 2H14L13 4M19 13V22H5V13C5 10.24 7.24 8 10 8V6H9V5H15V6H14V8C16.76 8 19 10.24 19 13M17 13C17 11.35 15.65 10 14 10H10C8.35 10 7 11.35 7 13V20H17V13Z","calendar-remove":"M19,19H5V8H19M19,3H18V1H16V3H8V1H6V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M9.31,17L11.75,14.56L14.19,17L15.25,15.94L12.81,13.5L15.25,11.06L14.19,10L11.75,12.44L9.31,10L8.25,11.06L10.69,13.5L8.25,15.94L9.31,17Z","alert-circle-outline":"M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z","information-outline":"M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z","stop":"M18,18H6V6H18V18Z","water":"M12,20A6,6 0 0,1 6,14C6,10 12,3.25 12,3.25C12,3.25 18,10 18,14A6,6 0 0,1 12,20Z","tune-variant":"M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z","flask-outline":"M5,19A1,1 0 0,0 6,20H18A1,1 0 0,0 19,19C19,18.79 18.93,18.59 18.82,18.43L13,8.35V4H11V8.35L5.18,18.43C5.07,18.59 5,18.79 5,19M6,22A3,3 0 0,1 3,19C3,18.4 3.18,17.84 3.5,17.37L9,7.81V6A1,1 0 0,1 8,5V4A2,2 0 0,1 10,2H14A2,2 0 0,1 16,4V5A1,1 0 0,1 15,6V7.81L20.5,17.37C20.82,17.84 21,18.4 21,19A3,3 0 0,1 18,22H6M13,16L14.34,14.66L16.27,18H7.73L10.39,13.39L13,16M12.5,12A0.5,0.5 0 0,1 13,12.5A0.5,0.5 0 0,1 12.5,13A0.5,0.5 0 0,1 12,12.5A0.5,0.5 0 0,1 12.5,12Z","chart-bar":"M22,21H2V3H4V19H6V10H10V19H12V6H16V19H18V14H22V21Z","water-plus":"M12 18C12 18.7 12.12 19.36 12.34 20C12.23 20 12.12 20 12 20C8.69 20 6 17.31 6 14C6 10 12 3.25 12 3.25S16.31 8.1 17.62 12C14.5 12.22 12 14.82 12 18M19 17V14H17V17H14V19H17V22H19V19H22V17H19Z","pipe-valve":"M22 13V21H20V19H16.58C15.81 20.76 14.05 22 12 22S8.19 20.76 7.42 19H4V21H2V13H4V15H7.43C7.93 13.85 8.85 12.93 10 12.42V11H8V9H16V11H14V12.42C15.15 12.93 16.07 13.85 16.57 15H20V13H22M17 2H7C6.45 2 6 2.45 6 3S6.45 4 7 4H10V5H11V8H13V5H14V4H17C17.55 4 18 3.55 18 3S17.55 2 17 2Z","bell-ring-outline":"M10,21H14A2,2 0 0,1 12,23A2,2 0 0,1 10,21M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M17,11A5,5 0 0,0 12,6A5,5 0 0,0 7,11V18H17V11M19.75,3.19L18.33,4.61C20.04,6.3 21,8.6 21,11H23C23,8.07 21.84,5.25 19.75,3.19M1,11H3C3,8.6 3.96,6.3 5.67,4.61L4.25,3.19C2.16,5.25 1,8.07 1,11Z","bluetooth-connect":"M19,10L17,12L19,14L21,12M14.88,16.29L13,18.17V14.41M13,5.83L14.88,7.71L13,9.58M17.71,7.71L12,2H11V9.58L6.41,5L5,6.41L10.59,12L5,17.58L6.41,19L11,14.41V22H12L17.71,16.29L13.41,12M7,12L5,10L3,12L5,14L7,12Z","speedometer":"M12,16A3,3 0 0,1 9,13C9,11.88 9.61,10.9 10.5,10.39L20.21,4.77L14.68,14.35C14.18,15.33 13.17,16 12,16M12,3C13.81,3 15.5,3.5 16.97,4.32L14.87,5.53C14,5.19 13,5 12,5A8,8 0 0,0 4,13C4,15.21 4.89,17.21 6.34,18.65H6.35C6.74,19.04 6.74,19.67 6.35,20.06C5.96,20.45 5.32,20.45 4.93,20.07V20.07C3.12,18.26 2,15.76 2,13A10,10 0 0,1 12,3M22,13C22,15.76 20.88,18.26 19.07,20.07V20.07C18.68,20.45 18.05,20.45 17.66,20.06C17.27,19.67 17.27,19.04 17.66,18.65V18.65C19.11,17.2 20,15.21 20,13C20,12 19.81,11 19.46,10.1L20.67,8C21.5,9.5 22,11.18 22,13Z","calendar-week":"M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z","refresh":"M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z","timer-play-outline":"M15 3H9V1H15V3M11 14H13V8H11V14M19 13C19.7 13 20.36 13.13 21 13.35C21 13.23 21 13.12 21 13C21 10.88 20.26 8.93 19.03 7.39L20.45 5.97C20 5.46 19.55 5 19.04 4.56L17.62 6C16.07 4.74 14.12 4 12 4C7.03 4 3 8.03 3 13S7.03 22 12 22C12.59 22 13.16 21.94 13.71 21.83C13.4 21.25 13.18 20.6 13.08 19.91C12.72 19.96 12.37 20 12 20C8.13 20 5 16.87 5 13S8.13 6 12 6 19 9.13 19 13M17 16V22L22 19L17 16Z","content-save-outline":"M17 3H5C3.89 3 3 3.9 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V7L17 3M19 19H5V5H16.17L19 7.83V19M12 12C10.34 12 9 13.34 9 15S10.34 18 12 18 15 16.66 15 15 13.66 12 12 12M6 6H15V10H6V6Z"};
+const SENTINEL_SHIELD = 'M117 25L192 57V100C192 145 164 174 118 193C70 174 44 143 44 101V57Z';
+const SENTINEL_X1 = 'M75 71H97L105 92L128 71H151L116 105L129 136H107L99 115L78 136H59L91 102ZM138 80L157 71H170L154 136H135L147 91L136 97Z';
+class HaIcon extends HTMLElement {
+  static get observedAttributes() { return ['icon']; }
+  get icon() { return this.getAttribute('icon'); }
+  set icon(v) { this.setAttribute('icon', v); }
+  connectedCallback() { this._draw(); }
+  attributeChangedCallback() { this._draw(); }
+  _loadIcon() {} requestUpdate() { this._draw(); } updated() {}
+  _draw() {
+    const name = this.icon || ''; const size = 'var(--mdc-icon-size, 24px)';
+    this.style.display = 'inline-flex'; this.style.width = size; this.style.height = size; this.style.flex = 'none';
+    if (name.startsWith('sentinel:')) {
+      this.innerHTML = `<svg viewBox="35 20 166 178" width="100%" height="100%"><path fill="#1F6FEB" d="${SENTINEL_SHIELD}"/><path fill="#fff" d="${SENTINEL_X1}"/></svg>`;
+      return;
+    }
+    const d = window.__ICONS[name.replace('mdi:', '')] || '';
+    this.innerHTML = `<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="currentColor" d="${d}"/></svg>`;
+  }
+}
+customElements.define('ha-icon', HaIcon);
+</script>
+<script>
+/* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
+ * type: custom:sentinel-x1-ble-card
+ * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
+const SXB_VERSION = '1.0.2';
+
+// ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
+window.customIcons = window.customIcons || {};
+if (!window.customIcons.sentinel) {
+  window.customIcons.sentinel = {getIcon: async () => ({
+    path: 'M117 25L192 57V1.0.292 145 164 174 118 193C70 174 44 143 44 101V57Z',
+    secondaryPath: 'M75 71H97L105 92L128 71H151L116 105L129 136H107L99 115L78 136H59L91 102ZM138 80L157 71H1.0.254 136H135L147 91L136 97Z',
+    viewBox: '35 20 166 178'})};
+}
+const SXB_ICON = 'sentinel:x1ble';
+const SXB_BLUE = '#1F6FEB';
+customElements.whenDefined('ha-icon').then(() => {
+  const proto = customElements.get('ha-icon').prototype;
+  if (proto._sentinelBleBranding) return;
+  proto._sentinelBleBranding = true;
+  const loadIcon = proto._loadIcon;
+  proto._loadIcon = function (...args) {
+    if (this.icon === SXB_ICON) this._legacy = false;
+    return loadIcon.apply(this, args);
+  };
+  const updated = proto.updated;
+  proto.updated = function (changed) {
+    if (updated) updated.call(this, changed);
+    if (this.icon === SXB_ICON) {
+      this.style.setProperty('--icon-primary-color', SXB_BLUE);
+      this.style.setProperty('--icon-secondary-color', '#fff');
+      this.style.setProperty('--icon-secondary-opactity', '1');
+      this._sentinelBleColored = true;
+    } else if (this._sentinelBleColored) {
+      ['--icon-primary-color', '--icon-secondary-color', '--icon-secondary-opactity']
+        .forEach(k => this.style.removeProperty(k));
+      this._sentinelBleColored = false;
+    }
+  };
+  const refresh = root => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el.localName === 'ha-icon' && el.icon === SXB_ICON) { el._loadIcon(); el.requestUpdate(); }
+      if (el.shadowRoot) refresh(el.shadowRoot);
+    }
+  };
+  queueMicrotask(() => refresh(document));
+});
+
+// ---- Entities ------------------------------------------------------------------------------
+const E = {
+  enabled: 'input_boolean.x1ble_enabled', alerts: 'input_boolean.x1ble_alerts',
+  dismissed: 'input_boolean.x1ble_cal_dismissed', supplement: 'input_text.x1ble_supplement',
+  window: 'input_select.x1ble_window', start: 'input_datetime.x1ble_start', end: 'input_datetime.x1ble_end',
+  lastCal: 'input_datetime.x1ble_last_cal', lastDose: 'input_datetime.x1ble_last_dose',
+  daily: 'input_number.x1ble_daily_ml', doses: 'input_number.x1ble_doses', cap: 'input_number.x1ble_daily_max',
+  manual: 'input_number.x1ble_manual_ml', prime: 'input_number.x1ble_prime_s', calm: 'input_number.x1ble_cal_measured',
+  csize: 'input_number.x1ble_container_size', cleft: 'input_number.x1ble_container_left',
+  lowdays: 'input_number.x1ble_low_days', today: 'input_number.x1ble_dosed_today', total: 'input_number.x1ble_dosed_total',
+  perdose: 'sensor.x1_ble_per_dose', daysleft: 'sensor.x1_ble_days_left', level: 'sensor.x1_ble_container_level',
+  next: 'sensor.x1_ble_next_dose', status: 'sensor.x1_ble_status', caldue: 'binary_sensor.x1_ble_calibration_due',
+  reach: 'binary_sensor.sentinel_x1_ble_pump_reachable', dosing: 'binary_sensor.sentinel_x1_ble_pump_dosing',
+  flow: 'sensor.sentinel_x1_ble_flow_rate_calibrated', result: 'sensor.sentinel_x1_ble_last_result',
+  contact: 'sensor.sentinel_x1_ble_last_contact',
+};
+const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+const WATCH = [...Object.values(E), ...DAYS.map(d => `input_boolean.x1ble_${d[0]}`)];
+
+const C = {ink: '#13233A', muted: '#56657C', line: '#E6EBF2', soft: '#F6F8FC', bg: '#F4F7FB', blue: SXB_BLUE,
+  blueSoft: '#EAF2FE', green: '#1E9E6A', greenSoft: '#E7F6EF', amber: '#D9821E', amberSoft: '#FDF3E6',
+  red: '#D64545', redSoft: '#FCECEC'};
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const num = (v, d = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+const fmt = (v, dp = 1) => num(v).toFixed(dp).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+const hhmm = d => d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+
+class SentinelX1BleCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({mode: 'open'});
+    this._tab = 'dosing';
+    this._sig = '';
+    this._hist = null;
+    this._log = null;
+    this._histAt = 0;
+    this._busy = {};
+  }
+
+  setConfig(config) { this._config = config || {}; }
+  getCardSize() { return 12; }
+  getGridOptions() { return {columns: 'full'}; }
+
+  set hass(hass) {
+    this._hass = hass;
+    const sig = WATCH.map(id => { const s = hass.states[id]; return s ? s.state + '|' + s.last_updated : '-'; }).join(';');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._render();
+  }
+
+  // ---- helpers ------------------------------------------------------------------------------
+  s(id) { return this._hass.states[id]; }
+  v(id, d = '') { const s = this.s(id); return s ? s.state : d; }
+  on(id) { return this.v(id) === 'on'; }
+  n(id, d = 0) { return num(this.v(id), d); }
+  call(domain, service, data = {}) { return this._hass.callService(domain, service, data); }
+  setNum(id, value) {
+    const st = this.s(id); if (!st) return;
+    const a = st.attributes; let v = num(value, a.min);
+    v = Math.min(a.max, Math.max(a.min, v));
+    const step = a.step || 1; v = Math.round(v / step) * step;
+    return this.call('input_number', 'set_value', {entity_id: id, value: +v.toFixed(3)});
+  }
+  async press(key, fn) {
+    if (this._busy[key]) return;
+    this._busy[key] = true; this._render(true);
+    try { await fn(); } catch (e) { console.error('sentinel-x1-ble', e); }
+    setTimeout(() => { this._busy[key] = false; this._render(true); }, 1500);
+  }
+  timeVal(id) { const s = this.s(id); if (!s) return '00:00'; return (s.state || '00:00:00').slice(0, 5); }
+
+  // ---- render -------------------------------------------------------------------------------
+  _render(force) {
+    if (!this._hass) return;
+    const root = this.shadowRoot;
+    const focused = root.activeElement;
+    if (!force && focused && (focused.tagName === 'INPUT')) return; // don't fight typing
+    const missing = !this.s(E.daily);
+    root.innerHTML = `<style>${this._css()}</style>
+      <div class="wrap">${missing ? this._missing() : this._header() + this._tabs() + this._body()}</div>`;
+    this._bind();
+    if (this._tab === 'history' && Date.now() - this._histAt > 120000) this._loadHistory();
+  }
+
+  _missing() {
+    return `<div class="card"><h2>Sentinel X1 BLE</h2><p class="muted">The dosing package isn't loaded.
+      Add <code>sentinel_x1_ble: !include packages/sentinel_x1_ble.yaml</code> under
+      <code>homeassistant: packages:</code> and reload.</p></div>`;
+  }
+
+  _statusPill() {
+    const st = this.v(E.status, 'unknown');
+    const map = {'Dosing': ['blue', 'mdi:water-pump'], 'Scheduled': ['green', 'mdi:check-circle'],
+      "Today's volume dosed": ['green', 'mdi:check-all'], 'Paused': ['amber', 'mdi:pause-circle'],
+      'Pump not reachable': ['red', 'mdi:bluetooth-off'], 'Container empty': ['red', 'mdi:bottle-tonic-outline'],
+      'Not a dosing day': ['grey', 'mdi:calendar-remove'], 'No daily volume set': ['amber', 'mdi:alert-circle-outline']};
+    const [tone, icon] = map[st] || ['grey', 'mdi:information-outline'];
+    return `<span class="pill ${tone}"><ha-icon icon="${icon}"></ha-icon>${esc(st)}</span>`;
+  }
+
+  _header() {
+    const name = this.v(E.supplement).trim();
+    const en = this.on(E.enabled);
+    return `<div class="card head">
+      <div class="brand">
+        <ha-icon class="logo" icon="${SXB_ICON}"></ha-icon>
+        <div><div class="title">${esc(name || 'Sentinel X1 BLE')}</div>
+          <div class="sub">${name ? 'Sentinel X1 BLE \u00b7 ' : ''}Kamoer X1 \u00b7 Bluetooth doser</div></div>
+      </div>
+      <div class="head-right">
+        ${this._statusPill()}
+        <button class="toggle ${en ? 'on' : ''}" data-act="enable" title="Automatic dosing">
+          <span class="knob"></span><span class="tlabel">${en ? 'Auto dosing on' : 'Auto dosing off'}</span></button>
+        <button class="stop" data-act="stop" ${this._busy.stop ? 'disabled' : ''}><ha-icon icon="mdi:stop"></ha-icon>STOP</button>
+      </div></div>`;
+  }
+
+  _tabs() {
+    const t = [['dosing', 'Dosing', 'mdi:water'], ['setup', 'Setup', 'mdi:tune-variant'],
+      ['calibrate', 'Calibrate', 'mdi:flask-outline'], ['history', 'History', 'mdi:chart-bar']];
+    return `<div class="tabs">${t.map(([k, l, i]) => `<button class="tab ${this._tab === k ? 'sel' : ''}" data-tab="${k}">
+      <ha-icon icon="${i}"></ha-icon><span>${l}</span></button>`).join('')}</div>`;
+  }
+
+  _body() {
+    if (this._tab === 'setup') return this._setup();
+    if (this._tab === 'calibrate') return this._calibrate();
+    if (this._tab === 'history') return this._history();
+    return this._dosing();
+  }
+
+  _stepper(id, opts = {}) {
+    const st = this.s(id); if (!st) return '';
+    const a = st.attributes; const step = opts.step || a.step || 1;
+    const dp = opts.dp ?? (step < 1 ? 1 : 0);
+    return `<div class="stepper ${opts.big ? 'big' : ''}">
+      <button data-step="${id}" data-d="${-step}" aria-label="less">\u2212</button>
+      <input type="number" inputmode="decimal" data-num="${id}" value="${fmt(st.state, dp)}" min="${a.min}" max="${a.max}" step="${a.step}">
+      <span class="unit">${esc(opts.unit ?? a.unit_of_measurement ?? '')}</span>
+      <button data-step="${id}" data-d="${step}" aria-label="more">+</button></div>`;
+  }
+
+  _banners() {
+    const out = [];
+    if (this.on(E.caldue)) {
+      const never = !this.s(E.lastCal) || this.v(E.lastCal) === 'unknown' || !this.s(E.lastCal).attributes.timestamp;
+      out.push(`<div class="banner amber"><ha-icon icon="mdi:flask-outline"></ha-icon>
+        <div><b>${never ? 'Calibrate this pump' : 'Calibration is 3 months old'}</b>
+        <span>Recommended, not required \u2014 keeps doses accurate as tubing wears.</span></div>
+        <div class="bactions"><button class="ghost" data-tab="calibrate">Calibrate</button>
+        <button class="ghost" data-act="dismiss">Dismiss</button></div></div>`);
+    }
+    const size = this.n(E.csize); const dl = this.n(E.daysleft, 999);
+    if (size > 0 && dl <= this.n(E.lowdays, 7)) {
+      out.push(`<div class="banner red"><ha-icon icon="mdi:bottle-tonic-outline"></ha-icon>
+        <div><b>Container low</b><span>${fmt(this.n(E.cleft), 0)} mL left \u00b7 about ${fmt(dl, 1)} days</span></div>
+        <div class="bactions"><button class="ghost" data-act="refill">Refilled</button></div></div>`);
+    }
+    if (!this.on(E.reach) && this.v(E.reach) !== 'unknown') {
+      out.push(`<div class="banner red"><ha-icon icon="mdi:bluetooth-off"></ha-icon>
+        <div><b>Pump not reachable</b><span>The bridge couldn't connect on its last try. Close the Kamoer app if it's open; doses retry automatically.</span></div></div>`);
+    }
+    return out.join('');
+  }
+
+  _dosing() {
+    const daily = this.n(E.daily); const today = this.n(E.today); const doses = this.n(E.doses, 1);
+    const per = this.n(E.perdose); const pct = daily > 0 ? Math.min(1, today / daily) : 0;
+    const w24 = this.v(E.window) === '24 hours';
+    const span = w24 ? 1440 : (() => { const [a, b] = [this.timeVal(E.start), this.timeVal(E.end)].map(t => +t.slice(0, 2) * 60 + +t.slice(3)); return b - a; })();
+    const every = doses > 0 && span > 0 ? span / doses : 0;
+    const everyTxt = every >= 60 ? `${fmt(every / 60, 1)} h` : `${Math.round(every)} min`;
+    const nextS = this.v(E.next); const next = nextS && !['unknown', 'unavailable'].includes(nextS) ? new Date(nextS) : null;
+    const nextTxt = next ? (next.toDateString() === new Date().toDateString() ? hhmm(next) : next.toLocaleDateString([], {weekday: 'short'}) + ' ' + hhmm(next)) : '\u2014';
+    const ld = this.s(E.lastDose); const ldTs = ld && ld.attributes.timestamp ? new Date(ld.attributes.timestamp * 1000) : null;
+    const ldTxt = ldTs && ld.attributes.year > 2000 && this.n(E.total) > 0 ? (ldTs.toDateString() === new Date().toDateString() ? hhmm(ldTs) : ldTs.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + hhmm(ldTs)) : '\u2014';
+    const r = 54, c = 2 * Math.PI * r;
+    const size = this.n(E.csize); const left = this.n(E.cleft); const lvl = size > 0 ? Math.min(100, Math.max(0, 100 * left / size)) : null;
+    const dl = this.v(E.daysleft);
+    const days = DAYS.filter(([k]) => this.on(`input_boolean.x1ble_${k}`)).map(d => d[1]);
+    const daysTxt = days.length === 7 ? 'Every day' : (days.length ? days.join(' ') : 'No days');
+    const reach = this.on(E.reach); const contact = this.v(E.contact);
+    const contactTxt = contact && !['unknown', 'unavailable'].includes(contact) ? hhmm(new Date(contact)) : '\u2014';
+    const flow = this.n(E.flow);
+    const winTxt = w24 ? '24 hours' : `${this.timeVal(E.start)}\u2013${this.timeVal(E.end)}`;
+    return `${this._banners()}
+    <div class="grid two">
+      <div class="card hero">
+        <div class="ring">
+          <svg viewBox="0 0 128 128"><circle cx="64" cy="64" r="${r}" class="track"/>
+            <circle cx="64" cy="64" r="${r}" class="bar" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - pct)}"/></svg>
+          <div class="ringtxt"><b>${fmt(today, 1)}</b><span>of ${fmt(daily, 1)} mL</span></div>
+        </div>
+        <div class="herotxt">
+          <div class="label">Today</div>
+          <div class="big">${daily > 0 ? `${fmt(per, 2)} mL \u00d7 ${doses}` : 'Set a daily volume'}</div>
+          <div class="muted">${daily > 0 ? `${fmt(daily, 1)} mL/day \u00b7 every ${everyTxt} \u00b7 ${esc(winTxt)}` : 'Open Setup to get started'}</div>
+          <div class="kv"><div><span>Next dose</span><b>${nextTxt}</b></div><div><span>Last dose</span><b>${ldTxt}</b></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Manual dose</div>
+        <div class="row">${this._stepper(E.manual, {big: true})}
+          <button class="primary" data-act="dose" ${this._busy.dose ? 'disabled' : ''}><ha-icon icon="mdi:water-plus"></ha-icon>Dose</button></div>
+        <div class="row gap">
+          <button class="secondary" data-act="prime" ${this._busy.prime ? 'disabled' : ''}><ha-icon icon="mdi:pipe-valve"></ha-icon>Prime ${fmt(this.n(E.prime, 10), 0)} s</button>
+          <button class="secondary" data-act="rollcall" ${this._busy.rollcall ? 'disabled' : ''}><ha-icon icon="mdi:bell-ring-outline"></ha-icon>Find pump</button>
+        </div>
+        <div class="hint">Manual doses count toward today's total. Prime doesn't.</div>
+      </div>
+    </div>
+    <div class="grid four">
+      <div class="card tile"><div class="ticon"><ha-icon icon="mdi:bottle-tonic-outline"></ha-icon></div>
+        <div class="tlabel2">Container</div>
+        ${lvl === null ? `<div class="tval">Not set</div><div class="tsub"><a data-tab="setup">Set size</a></div>` :
+          `<div class="tval">${Math.round(lvl)}%</div><div class="meter"><i style="width:${lvl}%" class="${lvl < 15 ? 'low' : ''}"></i></div>
+           <div class="tsub">${fmt(left, 0)} mL \u00b7 ${dl === 'unknown' ? '\u2014' : fmt(dl, 1) + ' days'}</div>
+           <button class="link" data-act="refill">Refilled</button>`}
+      </div>
+      <div class="card tile"><div class="ticon"><ha-icon icon="${reach ? 'mdi:bluetooth-connect' : 'mdi:bluetooth-off'}"></ha-icon></div>
+        <div class="tlabel2">Pump</div><div class="tval ${reach ? 'okc' : 'badc'}">${this.on(E.dosing) ? 'Dosing' : (reach ? 'Ready' : 'No contact')}</div>
+        <div class="tsub">Last contact ${contactTxt}</div><div class="tsub">${esc(this.v(E.result, '') === 'unknown' ? '' : this.v(E.result, ''))}</div></div>
+      <div class="card tile"><div class="ticon"><ha-icon icon="mdi:speedometer"></ha-icon></div>
+        <div class="tlabel2">Flow (calibrated)</div><div class="tval">${flow > 0 ? fmt(flow, 1) : '\u2014'}<small> mL/min</small></div>
+        <div class="tsub"><a data-tab="calibrate">Calibrate</a></div></div>
+      <div class="card tile"><div class="ticon"><ha-icon icon="mdi:calendar-week"></ha-icon></div>
+        <div class="tlabel2">Schedule</div><div class="tval sm">${esc(daysTxt)}</div>
+        <div class="tsub">${esc(winTxt)} \u00b7 limit ${this.n(E.cap) > 0 ? fmt(this.n(E.cap), 1) + ' mL' : 'off'}</div></div>
+    </div>`;
+  }
+
+  _setup() {
+    const w24 = this.v(E.window) === '24 hours';
+    const daily = this.n(E.daily), doses = this.n(E.doses, 1); const per = doses ? daily / doses : 0;
+    const cap = this.n(E.cap);
+    const capWarn = cap > 0 && cap < daily ? `<div class="warn">The safety limit is below the daily volume \u2014 some doses will be skipped.</div>` : '';
+    const perWarn = daily > 0 && per < 0.1 ? `<div class="hint">Each dose is ${fmt(per, 3)} mL; the pump's smallest dose is 0.1 mL, so tiny remainders carry over and are delivered with later doses.</div>` : '';
+    return `<div class="grid two">
+      <div class="card">
+        <h3>Dosing</h3>
+        <label>Supplement name</label>
+        <input class="text" type="text" data-text="${E.supplement}" maxlength="40" placeholder="e.g. Kalkwasser, NO3, Iodine" value="${esc(this.v(E.supplement))}">
+        <label>Daily volume</label>${this._stepper(E.daily, {big: true, step: 0.5, dp: 1})}
+        <label>Doses per day</label>${this._stepper(E.doses, {big: true, unit: ''})}
+        <div class="calc">= <b>${fmt(per, 2)} mL</b> per dose</div>${perWarn}
+        <label>Daily safety limit <span class="muted">(0 = off)</span></label>${this._stepper(E.cap, {step: 0.5, dp: 1})}
+        ${daily > 0 ? `<button class="link" data-act="capsuggest">Set to 1.5 \u00d7 daily (${fmt(daily * 1.5, 1)} mL)</button>` : ''}${capWarn}
+      </div>
+      <div class="card">
+        <h3>Schedule</h3>
+        <div class="seg">${['24 hours', 'Time window'].map(o => `<button class="${this.v(E.window) === o ? 'sel' : ''}" data-window="${o}">${o}</button>`).join('')}</div>
+        ${w24 ? `<div class="hint">Doses are spread evenly from midnight to midnight.</div>` : `
+          <div class="row times"><div><label>Start</label><input class="text" type="time" data-time="${E.start}" value="${this.timeVal(E.start)}"></div>
+          <div><label>End</label><input class="text" type="time" data-time="${E.end}" value="${this.timeVal(E.end)}"></div></div>
+          ${this.timeVal(E.end) <= this.timeVal(E.start) ? '<div class="warn">End must be later than start (windows can\'t cross midnight).</div>' : ''}`}
+        <label>Dosing days</label>
+        <div class="days">${DAYS.map(([k, l]) => `<button class="day ${this.on(`input_boolean.x1ble_${k}`) ? 'sel' : ''}" data-day="${k}">${l}</button>`).join('')}</div>
+        <h3 class="mt">Container</h3>
+        <label>Container size <span class="muted">(0 = don't track)</span></label>${this._stepper(E.csize, {step: 50, dp: 0})}
+        <div class="row gap"><button class="secondary" data-act="refill"><ha-icon icon="mdi:refresh"></ha-icon>Refilled (set to full)</button></div>
+        <label>Alert when fewer than</label>${this._stepper(E.lowdays, {unit: 'days left'})}
+      </div>
+      <div class="card">
+        <h3>Alerts & pump</h3>
+        <div class="switchrow"><div><b>Phone alerts</b><span>Low container, failed dose, pump not reachable</span></div>
+          <button class="toggle ${this.on(E.alerts) ? 'on' : ''}" data-tog="${E.alerts}"><span class="knob"></span></button></div>
+        <label>Prime run time</label>${this._stepper(E.prime, {unit: 's'})}
+        <div class="hint">Before turning on auto dosing, delete any schedule saved in the Kamoer app, or the pump will dose on its own too.</div>
+      </div>
+    </div>`;
+  }
+
+  _calibrate() {
+    const flow = this.n(E.flow); const m = this.n(E.calm);
+    const lc = this.s(E.lastCal); const lcTxt = lc && lc.attributes.timestamp ? new Date(lc.attributes.timestamp * 1000).toLocaleDateString([], {year: 'numeric', month: 'short', day: 'numeric'}) : 'Never (in Home Assistant)';
+    return `<div class="grid two">
+      <div class="card">
+        <h3>Calibrate</h3>
+        <ol class="steps">
+          <li><b>Prime the line.</b> Make sure the tube is full and liquid comes out steadily.
+            <div><button class="secondary" data-act="prime" ${this._busy.prime ? 'disabled' : ''}><ha-icon icon="mdi:pipe-valve"></ha-icon>Prime ${fmt(this.n(E.prime, 10), 0)} s</button></div></li>
+          <li><b>Put the outlet in the measuring cylinder</b> and run the pump for exactly 10 seconds.
+            <div><button class="primary" data-act="calrun" ${this._busy.calrun || this.on(E.dosing) ? 'disabled' : ''}><ha-icon icon="mdi:timer-play-outline"></ha-icon>${this.on(E.dosing) ? 'Running\u2026' : 'Run 10 s'}</button></div></li>
+          <li><b>Enter what you measured</b> and save it to the pump.
+            ${this._stepper(E.calm, {big: true})}
+            <div class="calc">= <b>${fmt(m * 6, 1)} mL/min</b></div>
+            <div><button class="primary" data-act="calsave" ${this._busy.calsave ? 'disabled' : ''}><ha-icon icon="mdi:content-save-outline"></ha-icon>Save calibration</button></div></li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>Current</h3>
+        <div class="kv col"><div><span>Flow on the pump</span><b>${flow > 0 ? fmt(flow, 1) + ' mL/min' : '\u2014'}</b></div>
+          <div><span>Last calibrated</span><b>${lcTxt}</b></div>
+          <div><span>Reminder</span><b>Every 3 months (you can dismiss it)</b></div></div>
+        <div class="hint">The pump stores calibration itself, so doses stay accurate even if Home Assistant is offline.</div>
+      </div></div>`;
+  }
+
+  _history() {
+    if (!this._hist) return `<div class="card"><div class="muted">Loading history\u2026</div></div>`;
+    const daily = this.n(E.daily);
+    const max = Math.max(daily, ...this._hist.map(d => d.v), 0.1);
+    const W = 640, H = 200, pad = 28, bw = (W - pad * 2) / 7;
+    const bars = this._hist.map((d, i) => {
+      const h = (H - 50) * d.v / max; const x = pad + i * bw + bw * 0.18; const y = H - 30 - h;
+      return `<rect x="${x}" y="${y}" width="${bw * 0.64}" height="${Math.max(h, 1)}" rx="6" class="${d.today ? 'today' : ''}"/>
+        <text x="${x + bw * 0.32}" y="${y - 6}" class="v">${d.v > 0 ? fmt(d.v, 1) : ''}</text>
+        <text x="${x + bw * 0.32}" y="${H - 10}" class="d">${d.label}</text>`;
+    }).join('');
+    const ty = H - 30 - (H - 50) * daily / max;
+    const week = this._hist.reduce((a, d) => a + d.v, 0);
+    const rows = (this._log || []).slice(0, 25).map(l => `<div class="logrow"><span>${l.when}</span><b>${esc(l.msg)}</b></div>`).join('') || '<div class="muted">No doses logged yet.</div>';
+    return `<div class="grid two">
+      <div class="card"><h3>Last 7 days</h3>
+        <svg class="chart" viewBox="0 0 ${W} ${H}">${daily > 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${ty}" y2="${ty}" class="target"/><text x="${W - pad}" y="${ty - 4}" class="t">target ${fmt(daily, 1)}</text>` : ''}${bars}</svg>
+        <div class="kv"><div><span>This week</span><b>${fmt(week, 1)} mL</b></div><div><span>Lifetime</span><b>${fmt(this.n(E.total), 0)} mL</b></div></div></div>
+      <div class="card"><h3>Dose log</h3><div class="log">${rows}</div></div></div>`;
+  }
+
+  async _loadHistory() {
+    this._histAt = Date.now();
+    const end = new Date(); const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - 6);
+    try {
+      const h = await this._hass.callWS({type: 'history/history_during_period', start_time: start.toISOString(),
+        end_time: end.toISOString(), entity_ids: [E.today], minimal_response: true, no_attributes: true, include_start_time_state: true});
+      const pts = (h[E.today] || []).map(p => ({t: new Date((p.lu || p.last_updated) * 1000 || p.last_changed), v: num(p.s ?? p.state)}));
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+        const d0 = new Date(start); d0.setDate(start.getDate() + i); const d1 = new Date(d0); d1.setDate(d0.getDate() + 1);
+        const inDay = pts.filter(p => p.t >= d0 && p.t < d1).map(p => p.v);
+        const isToday = i === 6;
+        days.push({label: isToday ? 'Today' : d0.toLocaleDateString([], {weekday: 'short'}), today: isToday,
+          v: isToday ? this.n(E.today) : (inDay.length ? Math.max(...inDay) : 0)});
+      }
+      this._hist = days;
+      const lb = await this._hass.callWS({type: 'logbook/get_events', start_time: start.toISOString(), end_time: end.toISOString(), entity_ids: [E.today]});
+      this._log = lb.filter(e => e.message).sort((a, b) => b.when - a.when).map(e => {
+        const t = new Date(e.when * 1000);
+        return {when: (t.toDateString() === new Date().toDateString() ? '' : t.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ') + hhmm(t), msg: e.message};
+      });
+    } catch (err) { console.error('sentinel-x1-ble history', err); this._hist = []; this._log = []; }
+    this._render(true);
+  }
+
+  // ---- events -------------------------------------------------------------------------------
+  _bind() {
+    const r = this.shadowRoot;
+    r.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
+      this._tab = b.dataset.tab; if (this._tab === 'history') this._histAt = 0; this._render(true);
+    }));
+    r.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+      const id = b.dataset.step; this.setNum(id, this.n(id) + num(b.dataset.d));
+    }));
+    r.querySelectorAll('[data-num]').forEach(i => {
+      i.addEventListener('change', () => this.setNum(i.dataset.num, i.value));
+      i.addEventListener('keydown', e => { if (e.key === 'Enter') i.blur(); });
+      i.addEventListener('blur', () => setTimeout(() => this._render(true), 50));
+    });
+    r.querySelectorAll('[data-text]').forEach(i => {
+      i.addEventListener('change', () => this.call('input_text', 'set_value', {entity_id: i.dataset.text, value: i.value.trim()}));
+      i.addEventListener('keydown', e => { if (e.key === 'Enter') i.blur(); });
+    });
+    r.querySelectorAll('[data-time]').forEach(i => i.addEventListener('change', () => {
+      if (i.value) this.call('input_datetime', 'set_datetime', {entity_id: i.dataset.time, time: i.value + ':00'});
+    }));
+    r.querySelectorAll('[data-window]').forEach(b => b.addEventListener('click', () =>
+      this.call('input_select', 'select_option', {entity_id: E.window, option: b.dataset.window})));
+    r.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () =>
+      this.call('input_boolean', 'toggle', {entity_id: `input_boolean.x1ble_${b.dataset.day}`})));
+    r.querySelectorAll('[data-tog]').forEach(b => b.addEventListener('click', () =>
+      this.call('input_boolean', 'toggle', {entity_id: b.dataset.tog})));
+    r.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => this._act(b.dataset.act)));
+  }
+
+  _act(a) {
+    const S = (svc, data) => () => this.call('script', svc, data);
+    switch (a) {
+      case 'enable': {
+        if (!this.on(E.enabled) && this.n(E.daily) <= 0) { this._tab = 'setup'; this._render(true); return; }
+        this.call('input_boolean', 'toggle', {entity_id: E.enabled}); return;
+      }
+      case 'stop': return this.press('stop', S('x1ble_stop'));
+      case 'dose': return this.press('dose', S('x1ble_manual_dose'));
+      case 'prime': return this.press('prime', S('x1ble_prime'));
+      case 'rollcall': return this.press('rollcall', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_roll_call'}));
+      case 'refill': return this.press('refill', S('x1ble_refill'));
+      case 'dismiss': return this.call('script', 'x1ble_cal_dismiss');
+      case 'calrun': return this.press('calrun', S('x1ble_cal_run'));
+      case 'calsave': return this.press('calsave', S('x1ble_cal_save'));
+      case 'capsuggest': return this.setNum(E.cap, Math.ceil(this.n(E.daily) * 1.5 * 2) / 2);
+    }
+  }
+
+  _css() {
+    return `
+    :host{display:block;--ink:${C.ink};--muted:${C.muted};--line:${C.line};--soft:${C.soft};--blue:${C.blue};
+      font-family:var(--paper-font-body1_-_font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);color:var(--ink)}
+    .wrap{max-width:1180px;margin:0 auto;padding:12px;background:${C.bg};border-radius:20px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 1px 2px rgba(19,35,58,.04)}
+    .grid{display:grid;gap:12px;margin-top:12px}
+    .grid.two{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+    .grid.four{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+    h2,h3{margin:0 0 10px;font-size:15px;letter-spacing:.2px}
+    h3.mt{margin-top:18px}
+    .muted{color:var(--muted);font-weight:400}
+    .label,.tlabel2{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+    label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 6px}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{--mdc-icon-size:46px;width:46px;height:46px}
+    .title{font-size:20px;font-weight:800}
+    .sub{font-size:12px;color:var(--muted)}
+    .head-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:700}
+    .pill ha-icon{--mdc-icon-size:16px}
+    .pill.green{background:${C.greenSoft};color:${C.green}} .pill.blue{background:${C.blueSoft};color:${C.blue}}
+    .pill.amber{background:${C.amberSoft};color:${C.amber}} .pill.red{background:${C.redSoft};color:${C.red}}
+    .pill.grey{background:var(--soft);color:var(--muted)}
+    button{font:inherit;cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
+    button:disabled{opacity:.5;cursor:default}
+    .toggle{display:inline-flex;align-items:center;gap:8px;background:transparent;padding:0;color:var(--ink);font-weight:600;font-size:13px}
+    .toggle .knob{width:44px;height:26px;border-radius:13px;background:#CBD5E1;position:relative;transition:.2s;flex:none}
+    .toggle .knob:after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+    .toggle.on .knob{background:var(--blue)} .toggle.on .knob:after{left:21px}
+    .stop{display:inline-flex;align-items:center;gap:6px;background:${C.red};color:#fff;font-weight:800;padding:10px 16px;border-radius:12px;letter-spacing:.5px}
+    .stop ha-icon{--mdc-icon-size:18px}
+    .tabs{display:flex;gap:6px;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:5px;overflow-x:auto}
+    .tab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;color:var(--muted);padding:10px 12px;border-radius:10px;font-weight:700;font-size:14px;white-space:nowrap}
+    .tab ha-icon{--mdc-icon-size:18px}
+    .tab.sel{background:${C.blueSoft};color:var(--blue)}
+    .hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+    .ring{position:relative;width:132px;height:132px;flex:none}
+    .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+    .ring circle{fill:none;stroke-width:11}
+    .ring .track{stroke:${C.blueSoft}} .ring .bar{stroke:var(--blue);stroke-linecap:round;transition:stroke-dashoffset .6s}
+    .ringtxt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .ringtxt b{font-size:26px} .ringtxt span{font-size:12px;color:var(--muted)}
+    .herotxt{flex:1;min-width:200px}
+    .big{font-size:22px;font-weight:800;margin:4px 0}
+    .kv{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap}
+    .kv.col{flex-direction:column;gap:10px}
+    .kv span{display:block;font-size:12px;color:var(--muted)} .kv b{font-size:16px}
+    .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .row.gap{margin-top:12px}
+    .stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--soft)}
+    .stepper button{width:40px;height:40px;background:transparent;font-size:20px;color:var(--blue);font-weight:700}
+    .stepper input{width:72px;border:none;background:#fff;height:40px;text-align:center;font:inherit;font-weight:700;font-size:16px;color:var(--ink);-moz-appearance:textfield}
+    .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+    .stepper .unit{padding:0 8px 0 4px;background:#fff;height:40px;display:flex;align-items:center;font-size:13px;color:var(--muted)}
+    .stepper.big button{width:46px;height:46px} .stepper.big input{height:46px;width:84px;font-size:18px} .stepper.big .unit{height:46px}
+    .primary,.secondary,.ghost{display:inline-flex;align-items:center;gap:6px;border-radius:12px;font-weight:700;padding:11px 16px}
+    .primary{background:var(--blue);color:#fff} .secondary{background:${C.blueSoft};color:var(--blue)}
+    .ghost{background:#fff;border:1px solid currentColor;padding:7px 12px;color:inherit}
+    .primary ha-icon,.secondary ha-icon{--mdc-icon-size:18px}
+    .link{background:none;color:var(--blue);padding:6px 0;font-weight:700;font-size:13px}
+    a{color:var(--blue);font-weight:700;cursor:pointer;text-decoration:none}
+    .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.45}
+    .warn{font-size:12px;color:${C.amber};margin-top:8px;font-weight:600}
+    .calc{margin-top:8px;font-size:13px;color:var(--muted)} .calc b{color:var(--ink)}
+    .tile{position:relative;min-height:120px}
+    .ticon{position:absolute;right:14px;top:14px;width:34px;height:34px;border-radius:10px;background:${C.blueSoft};color:var(--blue);display:flex;align-items:center;justify-content:center}
+    .ticon ha-icon{--mdc-icon-size:20px}
+    .tval{font-size:26px;font-weight:800;margin:8px 0 4px} .tval small{font-size:13px;color:var(--muted);font-weight:600}
+    .tval.sm{font-size:17px;line-height:1.3;padding-right:36px}
+    .tval.okc{color:${C.green}} .tval.badc{color:${C.red}}
+    .tsub{font-size:12px;color:var(--muted);margin-top:2px}
+    .meter{height:8px;border-radius:4px;background:${C.blueSoft};overflow:hidden;margin:6px 0}
+    .meter i{display:block;height:100%;background:var(--blue);border-radius:4px} .meter i.low{background:${C.red}}
+    .banner{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;margin-top:12px;flex-wrap:wrap}
+    .banner>ha-icon{--mdc-icon-size:24px;flex:none}
+    .banner>div:not(.bactions){flex:1;min-width:200px} .banner b{display:block} .banner span{font-size:13px}
+    .banner.amber{background:${C.amberSoft};color:#8A4E0B} .banner.red{background:${C.redSoft};color:#8E2323}
+    .bactions{display:flex;gap:8px}
+    input.text{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;height:44px;padding:0 12px;font:inherit;font-size:15px;color:var(--ink);background:#fff}
+    .times{gap:12px} .times>div{flex:1;min-width:120px} .times label{margin-top:4px}
+    .seg{display:flex;background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px}
+    .seg button{flex:1;background:transparent;padding:9px;border-radius:9px;font-weight:700;color:var(--muted)}
+    .seg button.sel{background:#fff;color:var(--blue);box-shadow:0 1px 2px rgba(19,35,58,.12)}
+    .days{display:flex;gap:6px;flex-wrap:wrap}
+    .day{flex:1;min-width:42px;padding:10px 0;border-radius:10px;background:var(--soft);color:var(--muted);font-weight:700;border:1px solid var(--line)}
+    .day.sel{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .switchrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0}
+    .switchrow span{display:block;font-size:12px;color:var(--muted)}
+    .steps{margin:0;padding-left:20px} .steps li{margin-bottom:18px;line-height:1.45} .steps li>div{margin-top:8px}
+    .chart{width:100%;height:auto}
+    .chart rect{fill:${C.blueSoft}} .chart rect.today{fill:var(--blue)}
+    .chart text{font-size:12px;fill:var(--muted);text-anchor:middle} .chart text.v{fill:var(--ink);font-weight:700}
+    .chart .target{stroke:${C.amber};stroke-dasharray:5 5;stroke-width:1.5} .chart text.t{text-anchor:end;fill:${C.amber};font-size:11px}
+    .log{max-height:360px;overflow:auto}
+    .logrow{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+    .logrow span{color:var(--muted);min-width:96px} .logrow b{font-weight:600}
+    code{background:var(--soft);padding:1px 5px;border-radius:5px}
+    @media (max-width:600px){.wrap{padding:8px;border-radius:0}.card{padding:14px}.title{font-size:18px}
+      .head-right{width:100%;justify-content:space-between}.tab span{display:none}.tab{padding:10px}
+      .ring{width:112px;height:112px}.big{font-size:19px}}
+    `;
+  }
+}
+
+if (!customElements.get('sentinel-x1-ble-card')) customElements.define('sentinel-x1-ble-card', SentinelX1BleCard);
+window.customCards = window.customCards || [];
+if (!window.customCards.find(c => c.type === 'sentinel-x1-ble-card')) {
+  window.customCards.push({type: 'sentinel-x1-ble-card', name: 'Sentinel X1 BLE', description: 'Kamoer X1 Bluetooth doser \u2014 dosing, setup, calibration, history'});
+}
+console.info(`%c SENTINEL-X1-BLE %c ${SXB_VERSION} `, `background:${SXB_BLUE};color:#fff;font-weight:700`, 'background:#fff;color:#1F6FEB');
+
+</script>
+</head>
+<body>
+<div class="demo-bar">
+  <div><b>Interactive demo</b> · simulated pump — nothing is sent anywhere. Try Dose, Prime, Setup and Calibrate.</div>
+  <div class="ctl">
+    <button id="ff">Fast-forward 1 hour</button>
+    <button id="unreach">Simulate pump offline</button>
+    <button id="reset">Reset demo</button>
+    <a href="./">About Sentinel X1 BLE</a>
+  </div>
+</div>
+<div id="host"></div>
+<div class="toast" id="toast"></div>
+<script>
+(() => {
+  const toast = msg => { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600); };
+  const KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
+  const pad = n => String(n).padStart(2, '0');
+  let clock = new Date(); clock.setHours(13, 20, 0, 0);
+  const now = () => new Date(clock.getTime());
+  const iso = d => d.toISOString();
+
+  // ---- state ------------------------------------------------------------------------------
+  let S, log, hist, offline;
+  const N = (v, min, max, step, unit) => ({state: String(v), attributes: {min, max, step, unit_of_measurement: unit}});
+  function fresh() {
+    offline = false;
+    S = {
+      'input_boolean.x1ble_enabled': {state: 'on'}, 'input_boolean.x1ble_alerts': {state: 'on'},
+      'input_boolean.x1ble_cal_dismissed': {state: 'off'}, 'input_text.x1ble_supplement': {state: 'Kalkwasser'},
+      'input_select.x1ble_window': {state: '24 hours'},
+      'input_datetime.x1ble_start': {state: '08:00:00', attributes: {timestamp: 28800}},
+      'input_datetime.x1ble_end': {state: '20:00:00', attributes: {timestamp: 72000}},
+      'input_datetime.x1ble_last_cal': {state: '', attributes: {timestamp: (now() - 100 * 86400000) / 1000}},
+      'input_datetime.x1ble_last_dose': {state: '', attributes: {}},
+      'input_number.x1ble_daily_ml': N(48, 0, 500, 0.1, 'mL'), 'input_number.x1ble_doses': N(24, 1, 48, 1),
+      'input_number.x1ble_daily_max': N(72, 0, 1000, 0.5, 'mL'), 'input_number.x1ble_manual_ml': N(1, 0.1, 500, 0.1, 'mL'),
+      'input_number.x1ble_prime_s': N(10, 1, 60, 1, 's'), 'input_number.x1ble_cal_measured': N(6.8, 0.5, 50, 0.1, 'mL'),
+      'input_number.x1ble_container_size': N(4000, 0, 20000, 10, 'mL'), 'input_number.x1ble_container_left': N(520, 0, 20000, 0.1, 'mL'),
+      'input_number.x1ble_low_days': N(14, 1, 60, 1, 'd'), 'input_number.x1ble_dosed_today': N(26, 0, 20000, 0.01, 'mL'),
+      'input_number.x1ble_dosed_total': N(18342, 0, 1e7, 0.01, 'mL'), 'input_number.x1ble_last_slot': N(12, -1, 100, 1),
+      'binary_sensor.sentinel_x1_ble_pump_reachable': {state: 'on'}, 'binary_sensor.sentinel_x1_ble_pump_dosing': {state: 'off'},
+      'sensor.sentinel_x1_ble_flow_rate_calibrated': {state: '40.8'}, 'sensor.sentinel_x1_ble_last_result': {state: 'Dosing 2.0 mL'},
+      'sensor.sentinel_x1_ble_last_contact': {state: ''},
+    };
+    KEYS.forEach(k => S['input_boolean.x1ble_' + k] = {state: 'on'});
+    const t = now(); t.setMinutes(0); setDose(t);
+    S['sensor.sentinel_x1_ble_last_contact'].state = iso(t);
+    hist = [44.1, 48, 48, 46, 48, 48].map(v => v);
+    log = [];
+    for (let i = 0; i < 6; i++) { const d = now(); d.setHours(13 - i, 0, 0, 0); log.push({when: d.getTime() / 1000, message: 'dosed 2.0 mL'}); }
+    derive();
+  }
+  function setDose(d) {
+    S['input_datetime.x1ble_last_dose'] = {state: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`,
+      attributes: {timestamp: d.getTime() / 1000, year: d.getFullYear()}};
+  }
+  const v = id => S[id] ? S[id].state : '';
+  const n = id => parseFloat(v(id)) || 0;
+  const on = id => v(id) === 'on';
+
+  // ---- the package's template sensors, recomputed in the browser ---------------------------
+  function window_() {
+    const w24 = v('input_select.x1ble_window') === '24 hours';
+    const s = S['input_datetime.x1ble_start'].attributes.timestamp / 60, e = S['input_datetime.x1ble_end'].attributes.timestamp / 60;
+    return w24 ? [0, 1440] : [s, e];
+  }
+  function derive() {
+    const d = n('input_number.x1ble_daily_ml'), doses = n('input_number.x1ble_doses') || 1;
+    S['sensor.x1_ble_per_dose'] = {state: String(+(d / doses).toFixed(2))};
+    const daysOn = KEYS.filter(k => on('input_boolean.x1ble_' + k)).length; const perDay = d * daysOn / 7;
+    S['sensor.x1_ble_days_left'] = {state: perDay > 0 ? String(+(n('input_number.x1ble_container_left') / perDay).toFixed(1)) : 'unknown'};
+    const size = n('input_number.x1ble_container_size');
+    S['sensor.x1_ble_container_level'] = {state: size > 0 ? String(Math.round(100 * n('input_number.x1ble_container_left') / size)) : 'unknown'};
+    // next dose
+    let next = 'unknown';
+    const [start, end] = window_(); const span = end - start; const last = n('input_number.x1ble_last_slot');
+    if (on('input_boolean.x1ble_enabled') && span > 0 && d > 0) {
+      const t = now(); const nowM = t.getHours() * 60 + t.getMinutes();
+      outer: for (let off = 0; off < 8; off++) {
+        const day = new Date(t); day.setDate(t.getDate() + off);
+        if (!on('input_boolean.x1ble_' + KEYS[(day.getDay() + 6) % 7])) continue;
+        for (let k = 0; k < doses; k++) {
+          const m = start + Math.ceil(k * span / doses);
+          if (off > 0 || (m > nowM && k > last)) { day.setHours(0, 0, 0, 0); next = iso(new Date(day.getTime() + m * 60000)); break outer; }
+        }
+      }
+    }
+    S['sensor.x1_ble_next_dose'] = {state: next};
+    const today = n('input_number.x1ble_dosed_today'); const left = n('input_number.x1ble_container_left');
+    let st = 'Scheduled';
+    if (on('binary_sensor.sentinel_x1_ble_pump_dosing')) st = 'Dosing';
+    else if (!on('binary_sensor.sentinel_x1_ble_pump_reachable')) st = 'Pump not reachable';
+    else if (!on('input_boolean.x1ble_enabled')) st = 'Paused';
+    else if (d <= 0) st = 'No daily volume set';
+    else if (size > 0 && left < 0.1) st = 'Container empty';
+    else if (!on('input_boolean.x1ble_' + KEYS[(now().getDay() + 6) % 7])) st = 'Not a dosing day';
+    else if (today >= d - 0.05) st = "Today's volume dosed";
+    S['sensor.x1_ble_status'] = {state: st};
+    const lc = S['input_datetime.x1ble_last_cal'].attributes.timestamp;
+    S['binary_sensor.x1_ble_calibration_due'] = {state: (!lc || (now() / 1000 - lc) > 90 * 86400) && !on('input_boolean.x1ble_cal_dismissed') ? 'on' : 'off'};
+    const stamp = iso(new Date());
+    Object.values(S).forEach(o => { o.last_updated = stamp; o.attributes = o.attributes || {}; });
+  }
+
+  // ---- simulated pump ----------------------------------------------------------------------
+  let runTimer = null;
+  function contact() {
+    if (offline) { S['binary_sensor.sentinel_x1_ble_pump_reachable'].state = 'off'; S['sensor.sentinel_x1_ble_last_result'].state = 'Pump not reachable'; return false; }
+    S['binary_sensor.sentinel_x1_ble_pump_reachable'].state = 'on'; S['sensor.sentinel_x1_ble_last_contact'].state = iso(now()); return true;
+  }
+  function run(seconds, label) {
+    S['binary_sensor.sentinel_x1_ble_pump_dosing'].state = 'on'; S['sensor.sentinel_x1_ble_last_result'].state = label;
+    clearTimeout(runTimer);
+    runTimer = setTimeout(() => { S['binary_sensor.sentinel_x1_ble_pump_dosing'].state = 'off'; push(); }, Math.min(seconds, 8) * 1000);
+  }
+  function dose(ml, source) {
+    ml = Math.round(ml * 10) / 10;
+    if (!contact()) { toast(`Dose failed: pump not reachable (alert sent)`); log.unshift({when: now() / 1000, message: `dose of ${ml} mL FAILED (${source})`}); return; }
+    const flow = n('sensor.sentinel_x1_ble_flow_rate_calibrated') || 40;
+    run(ml / flow * 60, `Dosing ${ml.toFixed(1)} mL`);
+    S['input_number.x1ble_dosed_today'].state = String(+(n('input_number.x1ble_dosed_today') + ml).toFixed(2));
+    S['input_number.x1ble_dosed_total'].state = String(+(n('input_number.x1ble_dosed_total') + ml).toFixed(2));
+    if (n('input_number.x1ble_container_size') > 0) S['input_number.x1ble_container_left'].state = String(Math.max(0, +(n('input_number.x1ble_container_left') - ml).toFixed(1)));
+    setDose(now()); log.unshift({when: now() / 1000, message: `dosed ${ml} mL`});
+    toast(`${source === 'manual' ? 'Manual dose' : 'Scheduled dose'}: ${ml} mL confirmed by the pump`);
+  }
+
+  // ---- service calls the card makes ----------------------------------------------------------
+  function callService(domain, service, data = {}) {
+    const id = data.entity_id;
+    const ids = Array.isArray(id) ? id : [id];
+    if (domain === 'input_number' && service === 'set_value') S[id].state = String(data.value);
+    else if (domain === 'input_boolean') ids.forEach(i => S[i].state = service === 'toggle' ? (on(i) ? 'off' : 'on') : (service === 'turn_on' ? 'on' : 'off'));
+    else if (domain === 'input_select') S[id].state = data.option;
+    else if (domain === 'input_text') S[id].state = data.value;
+    else if (domain === 'input_datetime') { const [h, m] = data.time.split(':').map(Number); S[id] = {state: data.time, attributes: {timestamp: h * 3600 + m * 60}}; }
+    else if (domain === 'button' && service === 'press') { if (contact()) toast('Find pump: the pump beeps and flashes its light'); }
+    else if (domain === 'script') {
+      const p = n('input_number.x1ble_prime_s');
+      switch (service) {
+        case 'x1ble_manual_dose': dose(n('input_number.x1ble_manual_ml'), 'manual'); break;
+        case 'x1ble_prime': if (contact()) { run(p, `Running ${p.toFixed(1)} s`); toast(`Priming for ${p} s (not counted as dosing)`); } break;
+        case 'x1ble_stop': clearTimeout(runTimer); S['binary_sensor.sentinel_x1_ble_pump_dosing'].state = 'off'; S['sensor.sentinel_x1_ble_last_result'].state = 'Stopped'; toast('Pump stopped'); break;
+        case 'x1ble_cal_run': if (contact()) { run(10, 'Running 10.0 s'); toast('Calibration run: 10 seconds into the measuring cylinder'); } break;
+        case 'x1ble_cal_save': {
+          const m = n('input_number.x1ble_cal_measured'); if (!contact()) break;
+          S['sensor.sentinel_x1_ble_flow_rate_calibrated'].state = String(+(60000 / Math.round(10000 / m)).toFixed(1));
+          S['input_datetime.x1ble_last_cal'].attributes.timestamp = now() / 1000; S['input_boolean.x1ble_cal_dismissed'].state = 'off';
+          S['sensor.sentinel_x1_ble_last_result'].state = 'Calibration saved'; toast(`Calibration saved to the pump: ${(m * 6).toFixed(1)} mL/min`); break;
+        }
+        case 'x1ble_cal_dismiss': S['input_boolean.x1ble_cal_dismissed'].state = 'on'; break;
+        case 'x1ble_refill': S['input_number.x1ble_container_left'].state = v('input_number.x1ble_container_size'); toast('Container marked full'); break;
+      }
+    }
+    push(); return Promise.resolve();
+  }
+
+  // ---- history / logbook the card asks for -----------------------------------------------------
+  async function callWS(msg) {
+    if (msg.type.startsWith('history')) {
+      const pts = hist.map((val, i) => { const d = now(); d.setDate(d.getDate() - 6 + i); d.setHours(23, 50, 0, 0); return {s: String(val), lu: d / 1000}; });
+      return {'input_number.x1ble_dosed_today': pts};
+    }
+    return log.slice(0, 30);
+  }
+
+  // ---- fast-forward: run the scheduler minute by minute ---------------------------------------
+  function tickMinute() {
+    clock = new Date(clock.getTime() + 60000);
+    if (clock.getHours() === 0 && clock.getMinutes() === 0) {
+      hist.shift(); hist.push(n('input_number.x1ble_dosed_today'));
+      S['input_number.x1ble_dosed_today'].state = '0'; S['input_number.x1ble_last_slot'].state = '-1';
+    }
+    if (!on('input_boolean.x1ble_enabled') || !on('input_boolean.x1ble_' + KEYS[(clock.getDay() + 6) % 7])) return;
+    const d = n('input_number.x1ble_daily_ml'); const doses = n('input_number.x1ble_doses') || 1; if (d <= 0) return;
+    const [start, end] = window_(); const span = end - start; const m = clock.getHours() * 60 + clock.getMinutes();
+    const slot = span > 0 && m >= start && m < end ? Math.floor((m - start) * doses / span) : -1;
+    if (slot >= 0 && slot > n('input_number.x1ble_last_slot')) {
+      S['input_number.x1ble_last_slot'].state = String(slot);
+      const vol = Math.floor(d / doses * 10) / 10;
+      const cap = n('input_number.x1ble_daily_max');
+      if (cap > 0 && n('input_number.x1ble_dosed_today') + vol > cap + 0.001) { toast('Dose skipped: daily safety limit reached'); return; }
+      if (vol >= 0.1) dose(vol, 'scheduled');
+    }
+  }
+
+  // ---- mount ---------------------------------------------------------------------------------
+  let card;
+  const hass = () => ({states: S, callService, callWS});
+  function push() { derive(); card.hass = hass(); }
+  function mount() {
+    fresh();
+    const host = document.getElementById('host'); host.innerHTML = '';
+    card = document.createElement('sentinel-x1-ble-card'); card.setConfig({}); host.appendChild(card); card.hass = hass();
+  }
+  document.getElementById('ff').onclick = () => { for (let i = 0; i < 60; i++) tickMinute(); push(); toast(`Clock moved to ${pad(clock.getHours())}:${pad(clock.getMinutes())}`); };
+  document.getElementById('unreach').onclick = e => {
+    offline = !offline; e.target.textContent = offline ? 'Bring pump back online' : 'Simulate pump offline';
+    S['binary_sensor.sentinel_x1_ble_pump_reachable'].state = offline ? 'off' : 'on';
+    S['sensor.sentinel_x1_ble_last_result'].state = offline ? 'Pump not reachable' : 'Ready'; push();
+  };
+  document.getElementById('reset').onclick = () => { document.getElementById('unreach').textContent = 'Simulate pump offline'; clock = new Date(); clock.setHours(13, 20, 0, 0); mount(); toast('Demo reset'); };
+  // Keep "now" in the card aligned with the simulated clock.
+  mount();
+})();
+</script>
+</body>
+</html>

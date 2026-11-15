@@ -1,0 +1,620 @@
+# =============================================================================
+# Sentinel X1 BLE — dosing engine for the Kamoer X1 (Bluetooth) pump
+# Bridge: ESP32-C6 "Sentinel X1 BLE" (ESPHome). Actions used:
+#   esphome.sentinel_x1_ble_dose(ml)          one dose of ml (0.1 mL steps)
+#   esphome.sentinel_x1_ble_run_seconds(s)    timed run (prime / calibration)
+#   esphome.sentinel_x1_ble_stop
+#   esphome.sentinel_x1_ble_calibrate(measured_ml)   after a 10 s run
+# The bridge confirms each start with events:
+#   esphome.sentinel_x1_ble_dose {ml, ok}  /  esphome.sentinel_x1_ble_run {seconds, ok}
+# Dashboard: custom:sentinel-x1-ble-card (www/sentinel-x1-ble/).
+# =============================================================================
+
+input_boolean:
+  x1ble_enabled:
+    name: "X1 BLE Dosing enabled"
+    icon: mdi:play-pause
+  x1ble_alerts:
+    name: "X1 BLE Phone alerts"
+    icon: mdi:cellphone-message
+  x1ble_cal_dismissed:
+    name: "X1 BLE Calibration reminder dismissed"
+    icon: mdi:bell-off
+  x1ble_mon: {name: "X1 BLE Mon", icon: mdi:calendar}
+  x1ble_tue: {name: "X1 BLE Tue", icon: mdi:calendar}
+  x1ble_wed: {name: "X1 BLE Wed", icon: mdi:calendar}
+  x1ble_thu: {name: "X1 BLE Thu", icon: mdi:calendar}
+  x1ble_fri: {name: "X1 BLE Fri", icon: mdi:calendar}
+  x1ble_sat: {name: "X1 BLE Sat", icon: mdi:calendar}
+  x1ble_sun: {name: "X1 BLE Sun", icon: mdi:calendar}
+
+input_text:
+  x1ble_supplement:
+    name: "X1 BLE Supplement"
+    max: 40
+    icon: mdi:flask-outline
+
+input_select:
+  x1ble_window:
+    name: "X1 BLE Schedule"
+    options: ["24 hours", "Time window"]
+    icon: mdi:clock-outline
+
+input_datetime:
+  x1ble_start:
+    name: "X1 BLE Window start"
+    has_date: false
+    has_time: true
+  x1ble_end:
+    name: "X1 BLE Window end"
+    has_date: false
+    has_time: true
+  x1ble_last_cal:
+    name: "X1 BLE Last calibrated"
+    has_date: true
+    has_time: false
+  x1ble_last_dose:
+    name: "X1 BLE Last dose"
+    has_date: true
+    has_time: true
+
+input_number:
+  x1ble_daily_ml:
+    name: "X1 BLE Daily volume"
+    min: 0
+    max: 500
+    step: 0.1
+    unit_of_measurement: mL
+    mode: box
+    icon: mdi:beaker-outline
+  x1ble_doses:
+    name: "X1 BLE Doses per day"
+    min: 1
+    max: 48
+    step: 1
+    mode: box
+    icon: mdi:counter
+  x1ble_daily_max:
+    name: "X1 BLE Daily safety limit"
+    min: 0
+    max: 1000
+    step: 0.5
+    unit_of_measurement: mL
+    mode: box
+    icon: mdi:shield-alert-outline
+  x1ble_manual_ml:
+    name: "X1 BLE Manual dose"
+    min: 0.1
+    max: 500
+    step: 0.1
+    unit_of_measurement: mL
+    mode: box
+  x1ble_prime_s:
+    name: "X1 BLE Prime time"
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: s
+    mode: box
+  x1ble_cal_measured:
+    name: "X1 BLE Calibration measured"
+    min: 0.5
+    max: 50
+    step: 0.1
+    unit_of_measurement: mL
+    mode: box
+  x1ble_container_size:
+    name: "X1 BLE Container size"
+    min: 0
+    max: 20000
+    step: 10
+    unit_of_measurement: mL
+    mode: box
+    icon: mdi:bottle-tonic-outline
+  x1ble_container_left:
+    name: "X1 BLE Container left"
+    min: 0
+    max: 20000
+    step: 0.1
+    unit_of_measurement: mL
+    mode: box
+  x1ble_low_days:
+    name: "X1 BLE Low container alert"
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: d
+    mode: box
+  # engine state (not user settings)
+  x1ble_dosed_today:
+    name: "X1 BLE Dosed today"
+    min: 0
+    max: 20000
+    step: 0.01
+    unit_of_measurement: mL
+    mode: box
+    icon: mdi:water-check
+  x1ble_dosed_total:
+    name: "X1 BLE Dosed lifetime"
+    min: 0
+    max: 10000000
+    step: 0.01
+    unit_of_measurement: mL
+    mode: box
+  x1ble_carry:
+    name: "X1 BLE Carry"
+    min: -1
+    max: 1
+    step: 0.001
+    mode: box
+  x1ble_last_slot:
+    name: "X1 BLE Last slot"
+    min: -1
+    max: 100
+    step: 1
+    mode: box
+
+template:
+  - sensor:
+      - name: "X1 BLE Per dose"
+        unique_id: x1ble_per_dose
+        unit_of_measurement: mL
+        icon: mdi:water
+        state: >
+          {% set d = states('input_number.x1ble_daily_ml') | float(0) %}
+          {% set n = states('input_number.x1ble_doses') | int(1) %}
+          {{ (d / n) | round(2) if n > 0 else 0 }}
+
+      - name: "X1 BLE Days left"
+        unique_id: x1ble_days_left
+        unit_of_measurement: d
+        icon: mdi:calendar-clock
+        state: >
+          {% set left = states('input_number.x1ble_container_left') | float(0) %}
+          {% set d = states('input_number.x1ble_daily_ml') | float(0) %}
+          {% set on = namespace(n=0) %}
+          {% for k in ['mon','tue','wed','thu','fri','sat','sun'] %}
+            {% if is_state('input_boolean.x1ble_' ~ k, 'on') %}{% set on.n = on.n + 1 %}{% endif %}
+          {% endfor %}
+          {% set per_day = d * on.n / 7 %}
+          {{ (left / per_day) | round(1) if per_day > 0 else 'unknown' }}
+
+      - name: "X1 BLE Container level"
+        unique_id: x1ble_container_level
+        unit_of_measurement: "%"
+        icon: mdi:bottle-tonic-outline
+        state: >
+          {% set size = states('input_number.x1ble_container_size') | float(0) %}
+          {% set left = states('input_number.x1ble_container_left') | float(0) %}
+          {{ (100 * left / size) | round(0) if size > 0 else 'unknown' }}
+
+      - name: "X1 BLE Next dose"
+        unique_id: x1ble_next_dose
+        device_class: timestamp
+        icon: mdi:clock-start
+        state: >
+          {% set n = states('input_number.x1ble_doses') | int(1) %}
+          {% set w24 = is_state('input_select.x1ble_window', '24 hours') %}
+          {% set s = state_attr('input_datetime.x1ble_start', 'timestamp') | int(0) // 60 %}
+          {% set e = state_attr('input_datetime.x1ble_end', 'timestamp') | int(0) // 60 %}
+          {% set start = 0 if w24 else s %}
+          {% set end = 1440 if w24 else e %}
+          {% set span = end - start %}
+          {% set keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% if not is_state('input_boolean.x1ble_enabled', 'on') or span <= 0
+                or states('input_number.x1ble_daily_ml') | float(0) <= 0 %}
+            unknown
+          {% else %}
+            {% set now_m = now().hour * 60 + now().minute %}
+            {% set last = states('input_number.x1ble_last_slot') | int(-1) %}
+            {% set ns = namespace(t=none) %}
+            {% for off in range(0, 8) %}
+              {% if ns.t is none %}
+                {% set day = (now() + timedelta(days=off)) %}
+                {% if is_state('input_boolean.x1ble_' ~ keys[day.weekday()], 'on') %}
+                  {% for k in range(n) %}
+                    {% set m = start + ((k * span + n - 1) // n) %}
+                    {% if ns.t is none and (off > 0 or (m > now_m and k > last)) %}
+                      {% set ns.t = (day.replace(hour=0, minute=0, second=0, microsecond=0)
+                                     + timedelta(minutes=m)) %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.t.isoformat() if ns.t is not none else 'unknown' }}
+          {% endif %}
+
+      - name: "X1 BLE Status"
+        unique_id: x1ble_status
+        icon: mdi:information-outline
+        state: >
+          {% set keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set d = states('input_number.x1ble_daily_ml') | float(0) %}
+          {% set today = states('input_number.x1ble_dosed_today') | float(0) %}
+          {% set size = states('input_number.x1ble_container_size') | float(0) %}
+          {% set left = states('input_number.x1ble_container_left') | float(0) %}
+          {% if is_state('binary_sensor.sentinel_x1_ble_pump_dosing', 'on') %}Dosing
+          {% elif is_state('binary_sensor.sentinel_x1_ble_pump_reachable', 'off') %}Pump not reachable
+          {% elif not is_state('input_boolean.x1ble_enabled', 'on') %}Paused
+          {% elif d <= 0 %}No daily volume set
+          {% elif size > 0 and left < 0.1 %}Container empty
+          {% elif not is_state('input_boolean.x1ble_' ~ keys[now().weekday()], 'on') %}Not a dosing day
+          {% elif today >= d - 0.05 %}Today's volume dosed
+          {% else %}Scheduled
+          {% endif %}
+
+  - binary_sensor:
+      - name: "X1 BLE Calibration due"
+        unique_id: x1ble_calibration_due
+        icon: mdi:flask-outline
+        state: >
+          {% set ts = state_attr('input_datetime.x1ble_last_cal', 'timestamp') %}
+          {% set old = ts is none or (as_timestamp(now()) - ts) > 90 * 86400 %}
+          {{ old and not is_state('input_boolean.x1ble_cal_dismissed', 'on') }}
+
+script:
+  x1ble_notify:
+    alias: "X1 BLE notify"
+    mode: queued
+    fields:
+      title: {description: "Title"}
+      message: {description: "Message"}
+    sequence:
+      - action: persistent_notification.create
+        data:
+          notification_id: "x1ble_{{ title | slugify }}"
+          title: "{{ title }}"
+          message: "{{ message }}"
+      - if:
+          - condition: state
+            entity_id: input_boolean.x1ble_alerts
+            state: "on"
+        then:
+          - action: notify.notify   # change to your phone, e.g. notify.mobile_app_<your_phone>
+            continue_on_error: true
+            data:
+              title: "{{ title }}"
+              message: "{{ message }}"
+
+  # One dose, with up to 3 attempts. Accounting happens on the bridge's confirm event.
+  x1ble_dose_now:
+    alias: "X1 BLE dose now"
+    mode: queued
+    max: 10
+    fields:
+      ml: {description: "mL", example: 1.0}
+      source: {description: "scheduled / manual", example: manual}
+    variables:
+      vol: "{{ (ml | float(0) * 10) | round(0) / 10 }}"
+      label: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
+    sequence:
+      - condition: template
+        value_template: "{{ vol >= 0.1 }}"
+      - variables:
+          ok: false
+      - repeat:
+          sequence:
+            - action: esphome.sentinel_x1_ble_dose
+              data:
+                ml: "{{ vol }}"
+            - wait_for_trigger:
+                - trigger: event
+                  event_type: esphome.sentinel_x1_ble_dose
+              timeout: "00:01:00"
+              continue_on_timeout: true
+            - variables:
+                ok: "{{ wait.trigger is not none and wait.trigger.event.data.ok == 'true' }}"
+            - if:
+                - condition: template
+                  value_template: "{{ not ok and repeat.index < 3 }}"
+              then:
+                - delay: "00:00:20"
+          until:
+            - condition: template
+              value_template: "{{ ok or repeat.index >= 3 }}"
+      - if:
+          - condition: template
+            value_template: "{{ not ok }}"
+        then:
+          - action: logbook.log
+            data:
+              name: "{{ label }}"
+              message: "dose of {{ vol }} mL FAILED ({{ source }}) — pump did not confirm"
+              entity_id: input_number.x1ble_dosed_today
+          - action: script.x1ble_notify
+            data:
+              title: "{{ label }}: dose failed"
+              message: "{{ vol }} mL ({{ source }}) was not confirmed by the pump after 3 tries. Check the pump and the Sentinel X1 BLE bridge."
+
+  x1ble_manual_dose:
+    alias: "X1 BLE manual dose"
+    mode: queued
+    sequence:
+      - action: script.x1ble_dose_now
+        data:
+          ml: "{{ states('input_number.x1ble_manual_ml') }}"
+          source: manual
+
+  x1ble_prime:
+    alias: "X1 BLE prime"
+    mode: single
+    sequence:
+      - action: esphome.sentinel_x1_ble_run_seconds
+        data:
+          seconds: "{{ states('input_number.x1ble_prime_s') | float(10) }}"
+
+  x1ble_stop:
+    alias: "X1 BLE stop"
+    mode: restart
+    sequence:
+      - action: script.turn_off
+        target:
+          entity_id: script.x1ble_dose_now
+      - action: esphome.sentinel_x1_ble_stop
+
+  x1ble_cal_run:
+    alias: "X1 BLE calibration run (10 s)"
+    mode: single
+    sequence:
+      - action: esphome.sentinel_x1_ble_run_seconds
+        data:
+          seconds: 10
+
+  x1ble_cal_save:
+    alias: "X1 BLE save calibration"
+    mode: single
+    sequence:
+      - condition: template
+        value_template: "{{ states('input_number.x1ble_cal_measured') | float(0) >= 0.5 }}"
+      - action: esphome.sentinel_x1_ble_calibrate
+        data:
+          measured_ml: "{{ states('input_number.x1ble_cal_measured') | float }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.x1ble_last_cal
+        data:
+          date: "{{ now().date() }}"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.x1ble_cal_dismissed
+
+  x1ble_cal_dismiss:
+    alias: "X1 BLE dismiss calibration reminder"
+    sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.x1ble_cal_dismissed
+
+  x1ble_refill:
+    alias: "X1 BLE container refilled"
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.x1ble_container_left
+        data:
+          value: "{{ states('input_number.x1ble_container_size') | float(0) }}"
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: "x1ble_{{ ((states('input_text.x1ble_supplement') or 'X1 BLE') ~ ': container low') | slugify }}"
+
+automation:
+  - id: x1ble_scheduler
+    alias: "X1 BLE scheduler"
+    description: "Splits the daily volume into equal doses across 24 h or the time window."
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.x1ble_enabled
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ is_state('input_boolean.x1ble_' ~ ['mon','tue','wed','thu','fri','sat','sun'][now().weekday()], 'on') }}
+      - condition: template
+        value_template: "{{ states('input_number.x1ble_daily_ml') | float(0) > 0 }}"
+    variables:
+      n: "{{ states('input_number.x1ble_doses') | int(1) }}"
+      w24: "{{ is_state('input_select.x1ble_window', '24 hours') }}"
+      start: "{{ 0 if w24 else state_attr('input_datetime.x1ble_start', 'timestamp') | int(0) // 60 }}"
+      end: "{{ 1440 if w24 else state_attr('input_datetime.x1ble_end', 'timestamp') | int(0) // 60 }}"
+      span: "{{ end - start }}"
+      now_m: "{{ now().hour * 60 + now().minute }}"
+      slot: >
+        {{ ((now_m - start) * n // span) if (span > 0 and now_m >= start and now_m < end) else -1 }}
+      last: "{{ states('input_number.x1ble_last_slot') | int(-1) }}"
+    actions:
+      - condition: template
+        value_template: "{{ slot >= 0 and slot > last }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.x1ble_last_slot
+        data:
+          value: "{{ slot }}"
+      - variables:
+          amount: >
+            {{ states('input_number.x1ble_daily_ml') | float(0) / n
+               + states('input_number.x1ble_carry') | float(0) }}
+          vol: "{{ ((amount * 10) | round(0, 'floor')) / 10 }}"
+          today: "{{ states('input_number.x1ble_dosed_today') | float(0) }}"
+          cap: "{{ states('input_number.x1ble_daily_max') | float(0) }}"
+          size: "{{ states('input_number.x1ble_container_size') | float(0) }}"
+          left: "{{ states('input_number.x1ble_container_left') | float(0) }}"
+          label: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.x1ble_carry
+        data:
+          value: "{{ [[amount - vol, -1] | max, 1] | min | round(3) }}"
+      - condition: template
+        value_template: "{{ vol >= 0.1 }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ cap > 0 and today + vol > cap + 0.001 }}"
+            sequence:
+              - action: script.x1ble_notify
+                data:
+                  title: "{{ label }}: dose skipped"
+                  message: "{{ vol }} mL would pass the daily safety limit of {{ cap }} mL ({{ today | round(1) }} mL already dosed)."
+          - conditions:
+              - condition: template
+                value_template: "{{ size > 0 and left < vol }}"
+            sequence:
+              - action: script.x1ble_notify
+                data:
+                  title: "{{ label }}: container empty"
+                  message: "Dose of {{ vol }} mL skipped — only {{ left | round(1) }} mL left. Refill, then tap Refilled."
+        default:
+          - action: script.x1ble_dose_now
+            data:
+              ml: "{{ vol }}"
+              source: scheduled
+
+  - id: x1ble_account_dose
+    alias: "X1 BLE account confirmed dose"
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: event
+        event_type: esphome.sentinel_x1_ble_dose
+        event_data:
+          ok: "true"
+    variables:
+      ml: "{{ trigger.event.data.ml | float(0) | round(1) }}"
+    actions:
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_dosed_today}
+        data:
+          value: "{{ (states('input_number.x1ble_dosed_today') | float(0) + ml) | round(2) }}"
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_dosed_total}
+        data:
+          value: "{{ (states('input_number.x1ble_dosed_total') | float(0) + ml) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ states('input_number.x1ble_container_size') | float(0) > 0 }}"
+        then:
+          - action: input_number.set_value
+            target: {entity_id: input_number.x1ble_container_left}
+            data:
+              value: "{{ [states('input_number.x1ble_container_left') | float(0) - ml, 0] | max | round(1) }}"
+      - action: input_datetime.set_datetime
+        target: {entity_id: input_datetime.x1ble_last_dose}
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: logbook.log
+        data:
+          name: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
+          message: "dosed {{ ml }} mL"
+          entity_id: input_number.x1ble_dosed_today
+
+  - id: x1ble_account_run
+    alias: "X1 BLE account prime / calibration run"
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: esphome.sentinel_x1_ble_run
+        event_data:
+          ok: "true"
+    variables:
+      ml: >
+        {{ (trigger.event.data.seconds | float(0) / 60
+            * states('sensor.sentinel_x1_ble_flow_rate_calibrated') | float(0)) | round(1) }}
+    actions:
+      - if:
+          - condition: template
+            value_template: "{{ states('input_number.x1ble_container_size') | float(0) > 0 and ml > 0 }}"
+        then:
+          - action: input_number.set_value
+            target: {entity_id: input_number.x1ble_container_left}
+            data:
+              value: "{{ [states('input_number.x1ble_container_left') | float(0) - ml, 0] | max | round(1) }}"
+      - action: logbook.log
+        data:
+          name: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
+          message: "ran {{ trigger.event.data.seconds | float(0) | round(0) }} s (about {{ ml }} mL, not counted as dosing)"
+          entity_id: input_number.x1ble_dosed_today
+
+  - id: x1ble_midnight
+    alias: "X1 BLE new day"
+    triggers:
+      - trigger: time
+        at: "00:00:00"
+    actions:
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_dosed_today}
+        data: {value: 0}
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_last_slot}
+        data: {value: -1}
+
+  # Changing the schedule mid-day: restart slot counting from the current slot so
+  # nothing already passed is dosed in a burst.
+  - id: x1ble_schedule_changed
+    alias: "X1 BLE schedule changed"
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_number.x1ble_doses
+          - input_select.x1ble_window
+          - input_datetime.x1ble_start
+          - input_datetime.x1ble_end
+      - trigger: state
+        entity_id: input_boolean.x1ble_enabled
+        to: "on"
+    variables:
+      n: "{{ states('input_number.x1ble_doses') | int(1) }}"
+      w24: "{{ is_state('input_select.x1ble_window', '24 hours') }}"
+      start: "{{ 0 if w24 else state_attr('input_datetime.x1ble_start', 'timestamp') | int(0) // 60 }}"
+      end: "{{ 1440 if w24 else state_attr('input_datetime.x1ble_end', 'timestamp') | int(0) // 60 }}"
+      span: "{{ end - start }}"
+      now_m: "{{ now().hour * 60 + now().minute }}"
+      slot: >
+        {{ ((now_m - start) * n // span) if (span > 0 and now_m >= start and now_m < end)
+           else (n if (span > 0 and now_m >= end) else -1) }}
+    actions:
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_last_slot}
+        data:
+          value: "{{ slot }}"
+      - action: input_number.set_value
+        target: {entity_id: input_number.x1ble_carry}
+        data: {value: 0}
+
+  - id: x1ble_container_low
+    alias: "X1 BLE container low"
+    triggers:
+      - trigger: template
+        value_template: >
+          {% set d = states('sensor.x1_ble_days_left') | float(999) %}
+          {{ states('input_number.x1ble_container_size') | float(0) > 0
+             and d <= states('input_number.x1ble_low_days') | float(7) }}
+    actions:
+      - action: script.x1ble_notify
+        data:
+          title: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}: container low"
+          message: >
+            {{ states('input_number.x1ble_container_left') | float(0) | round(0) }} mL left,
+            about {{ states('sensor.x1_ble_days_left') }} days at the current daily volume.
+
+  - id: x1ble_pump_unreachable
+    alias: "X1 BLE pump unreachable"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.sentinel_x1_ble_pump_reachable
+        to: "off"
+        for: "00:02:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.x1ble_enabled
+        state: "on"
+    actions:
+      - action: script.x1ble_notify
+        data:
+          title: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}: pump not reachable"
+          message: "The Sentinel X1 BLE bridge could not connect to the pump. Doses will retry; check power and that the Kamoer app isn't connected."
