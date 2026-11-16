@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.1.3';
+const SXB_VERSION = '1.1.4';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -474,6 +474,9 @@ class SentinelX1BleCard extends HTMLElement {
     }));
   }
 
+  // "Are you sure?" window for anything that runs the pump or resets a count.
+  ask(title, body, ok, run) { this._confirm = {title, body, ok, run}; this._render(true); }
+
   _act(a) {
     const S = (svc, data) => () => this.call('script', svc, data);
     switch (a) {
@@ -482,20 +485,28 @@ class SentinelX1BleCard extends HTMLElement {
         this.call('input_boolean', 'toggle', {entity_id: E.enabled}); return;
       }
       case 'stop': return this.press('stop', S('x1ble_stop'));
-      case 'dose': return this.press('dose', S('x1ble_manual_dose'));
-      case 'prime': return this.press('prime', S('x1ble_prime'));
+      case 'dose': {
+        const ml = this.n(E.manual), sup = this.v(E.supplement, '') || 'supplement';
+        return this.ask(`Dose ${fmt(ml, 1)} mL now?`,
+          `The pump will add ${fmt(ml, 1)} mL of ${sup} to the tank. This counts toward today's total.`,
+          `Dose ${fmt(ml, 1)} mL`, () => this.press('dose', S('x1ble_manual_dose')));
+      }
+      case 'prime': {
+        const sec = this.n(E.prime), flow = this.n(E.flow);
+        return this.ask(`Run the pump for ${fmt(sec, 0)} s?`,
+          `Priming pumps about ${flow > 0 ? fmt(flow * sec / 60, 1) : '?'} mL. Put the outlet tube in a cup first, unless you mean it to go into the tank. Priming is not counted as dosing.`,
+          'Start priming', () => this.press('prime', S('x1ble_prime')));
+      }
       case 'rollcall': return this.press('rollcall', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_roll_call'}));
       case 'resync': return this.press('resync', S('x1ble_pump_resync'));
       case 'clockcheck': return this.press('clockcheck', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_refresh'}));
-      case 'refill': {
-        const size = this.n(E.csize);
-        this._confirm = {title: 'Mark the container as refilled?',
-          body: `This resets the container to full (${fmt(size, 0)} mL). Only confirm after you have actually refilled it.`,
-          ok: 'Yes, it\u2019s refilled', run: () => this.press('refill', S('x1ble_refill'))};
-        this._render(true); return;
-      }
+      case 'refill': return this.ask('Mark the container as refilled?',
+        `This resets the container to full (${fmt(this.n(E.csize), 0)} mL). Only confirm after you have actually refilled it.`,
+        'Yes, it\u2019s refilled', () => this.press('refill', S('x1ble_refill')));
       case 'dismiss': return this.call('script', 'x1ble_cal_dismiss');
-      case 'calrun': return this.press('calrun', S('x1ble_cal_run'));
+      case 'calrun': return this.ask('Start the calibration run?',
+        'Put the outlet tube in a measuring cylinder first. The pump runs for 10 seconds; then enter what you measured.',
+        'Start run', () => this.press('calrun', S('x1ble_cal_run')));
       case 'calsave': return this.press('calsave', S('x1ble_cal_save'));
       case 'capsuggest': return this.setNum(E.cap, Math.ceil(this.n(E.daily) * 1.5 * 2) / 2);
     }
