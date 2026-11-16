@@ -548,7 +548,7 @@ automation:
         event_type: x1ble_pump_slot_dosed
     variables:
       ml: "{{ trigger.event.data.ml | float(0) | round(1) }}"
-      note: "{{ ' (pump schedule)' if trigger.event.event_type == 'x1ble_pump_slot_dosed' else '' }}"
+      note: "{{ '(pump schedule)' if trigger.event.event_type == 'x1ble_pump_slot_dosed' else '' }}"
     actions:
       - action: input_number.set_value
         target: {entity_id: input_number.x1ble_dosed_today}
@@ -573,7 +573,7 @@ automation:
       - action: logbook.log
         data:
           name: "{{ states('input_text.x1ble_supplement') or 'X1 BLE' }}"
-          message: "dosed {{ ml }} mL{{ note }}"
+          message: "{{ ('dosed ' ~ ml ~ ' mL ' ~ note) | trim }}"
           entity_id: input_number.x1ble_dosed_today
 
   - id: x1ble_account_run
@@ -715,7 +715,9 @@ automation:
                 Sentinel will try again at the next change and tonight. Check that the pump is powered and the Kamoer app isn't connected.
 
   # The pump doses its own slots without reporting them. One minute after each slot
-  # time, count the dose (only when the pump is confirmed to hold this schedule).
+  # time, count the dose. The slots come from the schedule last confirmed on the pump
+  # (input_text.x1ble_pump_sync), not from the dashboard settings, so editing the
+  # schedule around a dose time can't make a delivered dose go uncounted.
   - id: x1ble_account_pump_slot
     alias: "X1 BLE account pump-run dose"
     mode: queued
@@ -723,22 +725,17 @@ automation:
       - trigger: time_pattern
         minutes: "/1"
     conditions:
-      - condition: state
-        entity_id: sensor.x1_ble_pump_plan
-        state: pump
       - condition: template
-        value_template: >
-          {% set a = states.sensor.x1_ble_pump_plan.attributes %}
-          {{ states('input_text.x1ble_pump_sync') == (a.times | join(',') ~ '|' ~ a.tenths | join(',')) }}
+        value_template: "{{ states('input_text.x1ble_pump_sync') is match('^[0-9,]+[|][0-9,]+$') }}"
     variables:
       # Script variables are rendered to plain values, so work out the previous minute here.
       m: "{% set p = now() - timedelta(minutes=1) %}{{ p.hour * 60 + p.minute }}"
       same_day: "{{ (now() - timedelta(minutes=1)).date() == now().date() }}"
-      times: "{{ state_attr('sensor.x1_ble_pump_plan', 'times') }}"
-      tenths: "{{ state_attr('sensor.x1_ble_pump_plan', 'tenths') }}"
+      times: "{{ states('input_text.x1ble_pump_sync').split('|')[0].split(',') | map('int') | list }}"
+      tenths: "{{ states('input_text.x1ble_pump_sync').split('|')[1].split(',') | map('int') | list }}"
       k: >
         {% set ns = namespace(k=-1) %}
-        {% for i in range(12) %}{% if ns.k < 0 and tenths[i] > 0 and times[i] == m %}{% set ns.k = i %}{% endif %}{% endfor %}
+        {% for i in range(tenths | count) %}{% if ns.k < 0 and tenths[i] > 0 and times[i] == m %}{% set ns.k = i %}{% endif %}{% endfor %}
         {{ ns.k }}
     actions:
       - condition: template
