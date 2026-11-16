@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.1.2';
+const SXB_VERSION = '1.1.3';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -61,6 +61,7 @@ const E = {
   reach: 'binary_sensor.sentinel_x1_ble_pump_reachable', dosing: 'binary_sensor.sentinel_x1_ble_pump_dosing',
   flow: 'sensor.sentinel_x1_ble_flow_rate_calibrated', result: 'sensor.sentinel_x1_ble_last_result',
   contact: 'sensor.sentinel_x1_ble_last_contact',
+  pclock: 'sensor.sentinel_x1_ble_pump_clock', pdrift: 'sensor.sentinel_x1_ble_pump_clock_drift',
 };
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const WATCH = [...Object.values(E), ...DAYS.map(d => `input_boolean.x1ble_${d[0]}`)];
@@ -281,7 +282,7 @@ class SentinelX1BleCard extends HTMLElement {
       </div>
       <div class="card tile"><div class="ticon"><ha-icon icon="${reach ? 'mdi:bluetooth-connect' : 'mdi:bluetooth-off'}"></ha-icon></div>
         <div class="tlabel2">Pump</div><div class="tval ${reach ? 'okc' : 'badc'}">${this.on(E.dosing) ? 'Dosing' : (reach ? 'Ready' : 'No contact')}</div>
-        <div class="tsub">Last contact ${contactTxt}</div><div class="tsub">${esc(this.v(E.result, '') === 'unknown' ? '' : this.v(E.result, ''))}</div></div>
+        <div class="tsub">Last contact ${contactTxt}</div>${this._clockLine()}<div class="tsub">${esc(this.v(E.result, '') === 'unknown' ? '' : this.v(E.result, ''))}</div></div>
       <div class="card tile"><div class="ticon"><ha-icon icon="mdi:speedometer"></ha-icon></div>
         <div class="tlabel2">Flow (calibrated)</div><div class="tval">${flow > 0 ? fmt(flow, 1) : '\u2014'}<small> mL/min</small></div>
         <div class="tsub"><a data-tab="calibrate">Calibrate</a></div></div>
@@ -291,6 +292,20 @@ class SentinelX1BleCard extends HTMLElement {
         <div class="psync ${this._pumpSync().cls}">${this._pumpSync().html}</div>
         <div class="tdays">${size > 0 && dl !== 'unknown' ? `<b>${fmt(dl, 1)}</b> days remaining` : (size > 0 ? 'Days remaining: set a daily volume' : '<a data-tab="setup">Set container size</a> for days remaining')}</div></div>
     </div>`;
+  }
+
+  // The pump's own clock, read by the bridge at its hourly check (and corrected there if it
+  // is more than 30 s off). Shown running: the time read plus the time since the reading.
+  _clockLine() {
+    const c = this.s(E.pclock); if (!c) return '';
+    const read = new Date(c.state), at = new Date(c.last_updated);
+    if (isNaN(read) || isNaN(at)) return `<div class="tsub">Pump clock not read yet \u00b7 <a data-act="clockcheck">Check now</a></div>`;
+    const pumpNow = new Date(read.getTime() + (Date.now() - at.getTime()));
+    const d = this.n(E.pdrift, 0), off = Math.abs(d);
+    const state = off <= 30 ? `<span class="okc">in sync</span>${off >= 2 ? ` (${d > 0 ? '+' : '\u2212'}${fmt(off, 0)} s)` : ''}`
+      : `<span class="badc">off by ${off >= 120 ? fmt(off / 60, 0) + ' min' : fmt(off, 0) + ' s'}</span>, correcting`;
+    return `<div class="tsub">Pump clock <b>${hhmm(pumpNow)}</b> \u00b7 ${state}</div>
+      <div class="tsub">Checked ${hhmm(new Date(read.getTime() - d * 1000))} \u00b7 <a data-act="clockcheck">Check now</a></div>`;
   }
 
   // Where the schedule runs, and whether the pump is confirmed to hold it: the package
@@ -471,6 +486,7 @@ class SentinelX1BleCard extends HTMLElement {
       case 'prime': return this.press('prime', S('x1ble_prime'));
       case 'rollcall': return this.press('rollcall', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_roll_call'}));
       case 'resync': return this.press('resync', S('x1ble_pump_resync'));
+      case 'clockcheck': return this.press('clockcheck', () => this.call('button', 'press', {entity_id: 'button.sentinel_x1_ble_refresh'}));
       case 'refill': {
         const size = this.n(E.csize);
         this._confirm = {title: 'Mark the container as refilled?',
@@ -559,6 +575,7 @@ class SentinelX1BleCard extends HTMLElement {
     .tval.okc{color:${C.green}} .tval.badc{color:${C.red}}
     .tsub{font-size:12px;color:var(--muted);margin-top:2px}
     .tdays{margin-top:8px;font-size:13px;color:var(--ink)} .tdays b{font-size:17px;color:var(--blue)}
+    .tsub .okc{color:${C.green};font-weight:600} .tsub .badc{color:${C.red};font-weight:600}
     .psync{margin-top:6px;font-size:13px;color:var(--muted);line-height:1.5} .psync ha-icon{--mdc-icon-size:16px;vertical-align:-3px}
     .psync.ok ha-icon{color:${C.green}} .psync.wait ha-icon{color:${C.blue}} .psync.bad{color:${C.red}} .psync a{cursor:pointer}
     .meter{height:8px;border-radius:4px;background:${C.blueSoft};overflow:hidden;margin:6px 0}

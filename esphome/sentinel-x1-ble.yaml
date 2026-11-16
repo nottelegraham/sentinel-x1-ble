@@ -379,6 +379,13 @@ script:
                       id: send_frame
                       frame: [0x01, 0x05, 0x10, 0x03, 0xFF, 0x00]
                   - script.wait: send_frame
+                  # read the clock back so the dashboard shows the corrected time
+                  - delay: 300ms
+                  - script.execute:
+                      id: send_frame
+                      frame: [0x01, 0x03, 0x30, 0x0F, 0x00, 0x06]
+                  - script.wait: send_frame
+                  - delay: 600ms
             - script.execute:
                 id: send_frame
                 frame: [0x01, 0x03, 0x30, 0x09, 0x00, 0x03]
@@ -535,6 +542,8 @@ sensor:
             t.recalc_timestamp_local();
             id(clock_drift_s) = (int) ((int64_t) t.timestamp - (int64_t) now.timestamp);
             ESP_LOGD("x1", "Pump clock drift %d s", id(clock_drift_s));
+            id(pump_clock_drift).publish_state(id(clock_drift_s));
+            id(pump_clock).publish_state(ESPTime::from_epoch_utc(t.timestamp).strftime("%Y-%m-%dT%H:%M:%SZ"));
           }
         }
         int r = id(last_read_reg); int cnt = x[2] / 2;
@@ -546,6 +555,14 @@ sensor:
         }
       }
       return (float) fn;
+
+  - platform: template
+    id: pump_clock_drift
+    name: "Pump clock drift"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    icon: mdi:clock-alert-outline
+    entity_category: diagnostic
 
   - platform: template
     id: pump_flow
@@ -565,6 +582,11 @@ binary_sensor:
     device_class: running
 
 text_sensor:
+  - platform: template
+    id: pump_clock
+    name: "Pump clock"
+    device_class: timestamp
+    icon: mdi:clock-outline
   - platform: template
     id: last_result
     name: "Last result"
