@@ -1,7 +1,7 @@
 /* Sentinel X1 BLE \u00b7 Lovelace card for the Kamoer X1 (Bluetooth) dosing package.
  * type: custom:sentinel-x1-ble-card
  * Front end only: every control calls the helpers/scripts in packages/sentinel_x1_ble.yaml. */
-const SXB_VERSION = '1.1.1';
+const SXB_VERSION = '1.1.2';
 
 // ---- Blue Sentinel X1 icon: "sentinel:x1ble" (same shield as the Pro-T, blue) ----------------
 window.customIcons = window.customIcons || {};
@@ -412,7 +412,8 @@ class SentinelX1BleCard extends HTMLElement {
         const inDay = pts.filter(p => p.t >= d0 && p.t < d1).map(p => p.v);
         const isToday = i === 6;
         days.push({label: isToday ? 'Today' : d0.toLocaleDateString([], {weekday: 'short'}), today: isToday,
-          v: isToday ? this.n(E.today) : (inDay.length ? Math.max(...inDay) : 0)});
+          // Last value of the day = that day's final total (respects corrections; the counter resets at midnight).
+          v: isToday ? this.n(E.today) : (inDay.length ? inDay[inDay.length - 1] : 0)});
       }
       this._hist = days;
       const lb = await this._hass.callWS({type: 'logbook/get_events', start_time: start.toISOString(), end_time: end.toISOString(), entity_ids: [E.today]});

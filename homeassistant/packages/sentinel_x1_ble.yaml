@@ -731,8 +731,9 @@ automation:
           {% set a = states.sensor.x1_ble_pump_plan.attributes %}
           {{ states('input_text.x1ble_pump_sync') == (a.times | join(',') ~ '|' ~ a.tenths | join(',')) }}
     variables:
-      prev: "{{ (now() - timedelta(minutes=1)) }}"
-      m: "{{ prev.hour * 60 + prev.minute }}"
+      # Script variables are rendered to plain values, so work out the previous minute here.
+      m: "{% set p = now() - timedelta(minutes=1) %}{{ p.hour * 60 + p.minute }}"
+      same_day: "{{ (now() - timedelta(minutes=1)).date() == now().date() }}"
       times: "{{ state_attr('sensor.x1_ble_pump_plan', 'times') }}"
       tenths: "{{ state_attr('sensor.x1_ble_pump_plan', 'tenths') }}"
       k: >
@@ -741,7 +742,7 @@ automation:
         {{ ns.k }}
     actions:
       - condition: template
-        value_template: "{{ k >= 0 and prev.date() == now().date() }}"
+        value_template: "{{ k >= 0 and same_day }}"
       - action: input_number.set_value
         target: {entity_id: input_number.x1ble_last_slot}
         data: {value: "{{ k }}"}
